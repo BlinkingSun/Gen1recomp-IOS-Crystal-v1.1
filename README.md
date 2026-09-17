@@ -1,5 +1,6 @@
-# Terrarium for Pokémon Crystal
+# Gen1recomp-IOS-Crystal v1.1
 
+**Terrarium for Pokémon Crystal** — 
 Gen 2 support for the [Terrarium](https://github.com/BrenoBertucci/Terrarium)
 voxel-diorama mod on the [gen1recomp](https://github.com/bryanthaboi/gen1recomp)
 engine: Johto's towns, routes, caves and interiors rendered as a 3D voxel
@@ -68,8 +69,8 @@ repository at the pinned revision and applies the patches on your machine.
 ## Quick start
 
 ```sh
-git clone https://github.com/<you>/terrarium-gen2-crystal
-cd terrarium-gen2-crystal
+git clone https://github.com/BlinkingSun/Gen1recomp-IOS-Crystal-v1.1
+cd Gen1recomp-IOS-Crystal-v1.1
 ./apply.sh            # -> work/gen1recomp (patched), work/Terrarium (patched), dist/TERRARIUM.zip
 ```
 
