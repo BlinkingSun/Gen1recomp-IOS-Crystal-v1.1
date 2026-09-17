@@ -5,7 +5,9 @@ voxel-diorama mod on the [gen1recomp](https://github.com/bryanthaboi/gen1recomp)
 engine: Johto's towns, routes, caves and interiors rendered as a 3D voxel
 world — on **iOS** as well as desktop.
 
-![New Bark Town](screenshots/new-bark-town-macos.png)
+![New Bark Town on an iPhone 16 Pro Max](screenshots/new-bark-town-iphone.png)
+
+*New Bark Town at night, running on an iPhone.*
 
 Terrarium was written for Red / Blue / Yellow. Booting it on Crystal drew every
 town as a solid mass of trees, because the engine's Gen 2 games describe their
@@ -25,7 +27,7 @@ phone at all.
 | **Game** | **Pokémon Crystal (USA) Rev 1.1** — SHA-1 `f2f52230b536214ef7c9924f483392993e226cfb`. Tested. Crystal Rev 1.0 should work (same tilesets) but is untested. Gold / Silver: untested — the kit leaves them on Terrarium's own Gold behaviour. |
 | **Engine** | gen1recomp **v0.2.60** (`4dadfd55`). The engine patches are written against that tag. |
 | **Mod base** | Terrarium at commit **`ffecfa14`** (1.36.0-beta, 2026-09-15). |
-| **iOS** | **Tested**: iPhone 16 Pro Max, iOS 26.1, LÖVE 12 / Metal, portrait and landscape. Also the iOS Simulator (iOS 26.5) — [screenshot](screenshots/new-bark-town-ios-simulator.png). You build the app yourself — see below. |
+| **iOS** | **Tested**: iPhone 16 Pro Max, iOS 26.1, LÖVE 12 / Metal, portrait and landscape ([phone](screenshots/new-bark-town-iphone.png), [Simulator](screenshots/new-bark-town-ios-simulator.png)). You build the app yourself — see below. |
 | **macOS** | Tested with the official gen1recomp macOS build (LÖVE 11.5 / OpenGL). No engine patch needed on desktop. |
 | **Android / Windows / Linux** | Untested. The mod changes are platform-neutral; the engine patches are iOS-specific. |
 
