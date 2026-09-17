@@ -76,10 +76,13 @@ your copy of the dump afterwards if you like — the app keeps only derived data
 Grant the `engine_internals` and `filesystem` permissions when asked; they are what the mod needs to
 replace the world renderer.
 
-## 5. Turn the diorama on (once)
+## 5. Turn the diorama on
 
-Gold and Crystal keep their settings in the `gold` block of `options.lua`, and their OPTIONS menu has
-no row for render pipelines, so set the camera level in the file:
+**Desktop:** boot Crystal and press **`v`** — Terrarium's VOXEL hotkey steps the camera level
+(OFF → FULL → 15° → 35° → 50° → 75°); the engine remembers it. Done.
+
+**Phone (no keyboard):** Gold and Crystal keep their settings in the `gold` block of `options.lua`,
+and their OPTIONS menu has no row for render pipelines, so set the camera level in the file once:
 
 ```lua
   gold = {

@@ -28,7 +28,7 @@ phone at all.
 | **Engine** | gen1recomp **v0.2.60** (`4dadfd55`). The engine patches are written against that tag. |
 | **Mod base** | Terrarium at commit **`ffecfa14`** (1.36.0-beta, 2026-09-15). |
 | **iOS** | **Tested**: iPhone 16 Pro Max, iOS 26.1, LÖVE 12 / Metal, portrait and landscape ([phone](screenshots/new-bark-town-iphone.png), [Simulator](screenshots/new-bark-town-ios-simulator.png)). You build the app yourself — see below. |
-| **macOS** | Tested with the official gen1recomp macOS build (LÖVE 11.5 / OpenGL). No engine patch needed on desktop. |
+| **macOS** | **Tested** with the official gen1recomp macOS build (LÖVE 11.5 / OpenGL), Apple silicon — [screenshot](screenshots/new-bark-town-macos.png). No engine patch needed on desktop; `v` cycles the camera. |
 | **Android / Windows / Linux** | Untested. The mod changes are platform-neutral; the engine patches are iOS-specific. |
 
 **This repository contains no ROM, no save, no extracted game data and no
@@ -82,8 +82,9 @@ Then follow [docs/INSTALL.md](docs/INSTALL.md):
    Gold rendering fix lives in the app.
 2. Import your Crystal dump in the launcher.
 3. Put `dist/TERRARIUM/` in the app's `mods/` folder (or import the zip).
-4. Set the camera once in `options.lua`: `gold = { pipelines = { terrarium_voxel = 3 } }`.
-   Crystal's OPTIONS menu has no row for it.
+4. Turn it on: on the desktop press **`v`** in-game (Terrarium's VOXEL hotkey cycles the
+   camera level); on a phone set it once in `options.lua`:
+   `gold = { pipelines = { terrarium_voxel = 3 } }` — Crystal's OPTIONS menu has no row for it.
 
 ## Camera levels
 
