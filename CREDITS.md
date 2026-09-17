@@ -1,0 +1,14 @@
+# Credits
+
+This kit is a thin layer on other people's work. In order of how much of it is theirs:
+
+- **[gen1recomp](https://github.com/bryanthaboi/gen1recomp)** by bryanthaboi / BOIS CLUB GAMES, LLC (MIT) — the engine: the Gen 1 and Gen 2 recompilations, the mod API, the Gen 2 compatibility layer (`src/mods/Gen2Compat.lua`), the `modkit gen2check` tool and the *Preparing your mod for Gen 2* guide that made this port tractable, and the iOS build pipeline. The two engine patches here are proposed fixes to it.
+- **[Terrarium](https://github.com/BrenoBertucci/Terrarium)** by BrenoBertucci — the mod this kit extends: its Gold first-pass bridge (`lib/Gen2Bridge.lua`) is what let a Gen 2 map load at all, and its probe scripts were the template for ours. Terrarium carries no licence file and asks that you talk to the original author before building on it; this repository therefore redistributes none of its files, only diffs.
+- **[Dramatic Shape Voxel Mod](https://github.com/DramaticShape/DramaticShapeVoxelMod)** by Dramatic Shape — the original voxel diorama that Terrarium (and Battle Art) are forks of: the mesher, the depth-buffered occlusion, the shadow map, the tilt-shift pass. Everything 3D here descends from it.
+- **[Battle Art Voxel Fork](https://github.com/absol89/DramaticShapeVoxelMod)** by absol89 — its `docs/GEN1_GEN2_DIFFERENCES.md` porting plan set the scope; its Metal-renderer detection rule and its runtime probe for the shadow map's storage orientation are the approach reimplemented in `Device.metal()` and `ShadowMap.probeVSign()`.
+- **[Porygonal Overworld Characters](https://github.com/CurlyG004/porygonal-overworld-characters)** by CurlyG004 (GPL-3.0) — not part of this kit, but its iOS fix (Metal reverses front-face winding) was the first clue that LÖVE 12's Metal backend flips clip space.
+- **[pret/pokecrystal](https://github.com/pret/pokecrystal)** — the disassembly whose `constants/collision_constants.asm` names the collision bytes the classifier reads (the engine's `src/world/gen2/Permissions.lua` already encodes the permission table).
+- **[LÖVE](https://love2d.org)** (zlib) and **[SDL](https://github.com/libsdl-org/SDL)** (zlib) — the runtime. The scene-guard patch addresses SDL issue [#16161](https://github.com/libsdl-org/SDL/issues/16161), and the diagnosis in that thread (attach nothing to external-display scenes) is rknoesel's.
+- **[Gen2Recomped](https://github.com/UNDERdecoded/Gen2Recomped)** and **[Gen2Recomped-DramaticShapes](https://github.com/UNDERdecoded/Gen2Recomped-DramaticShapes)** by UNDERdecoded — related work, not used here: a Gen 2-first fork of the engine with its own voxel mod (including 3D battles).
+
+Pokémon, Pokémon Crystal and all game content are © Nintendo / Creatures Inc. / GAME FREAK Inc. No game data is included; the screenshots are the author's own renders of a personally owned cartridge dump.

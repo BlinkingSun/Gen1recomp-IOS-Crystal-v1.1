@@ -1,0 +1,125 @@
+--- a/mobile/ios/native/GRBootstrap.m	2026-09-16 14:00:45
++++ b/mobile/ios/native/GRBootstrap.m	2026-09-16 14:01:06
+@@ -24,6 +24,89 @@
+ 
+ static void GRInstallApplicationURLHooks(void);
+ static void GRInstallSceneURLHooksForClass(Class sceneDelegateClass);
++
++// --- external display scenes (AirPlay mirroring, USB-C monitors, XR glasses) ---
++//
++// SDL 3.4's SDLUIKitSceneDelegate runs the app's main() from
++// scene:willConnectToSession: without looking at the session role
++// (libsdl-org/SDL#16161).  The moment iOS connects the extra scene it creates
++// for an external display, SDL schedules postFinishLaunch again and LÖVE's
++// main() is re-entered *nested* inside the running game's event pump.  The
++// nested boot blocks the main thread, the scene-create watchdog fires after
++// 10 s and the app is killed (0x8BADF00D).  Attaching a window to that scene
++// would also stop iOS from mirroring the phone (the glasses go black).
++//
++// So: leave every non-application scene empty and never let a second scene
++// start the app.  The scene's lifecycle callbacks are gated the same way,
++// because SDL turns them into SDL_EVENT_DID_ENTER_BACKGROUND / WINDOW_MINIMIZED
++// and LÖVE deactivates graphics on those.
++static BOOL GRMainSceneConnected;
++static IMP GRSceneDidBecomeActiveOriginal;
++static IMP GRSceneWillResignActiveOriginal;
++static IMP GRSceneWillEnterForegroundOriginal;
++static IMP GRSceneDidEnterBackgroundOriginal;
++
++static BOOL GRIsExternalDisplayScene(id scene, id session)
++{
++    UISceneSession *sceneSession = nil;
++    if ([session isKindOfClass:[UISceneSession class]]) {
++        sceneSession = (UISceneSession *)session;
++    } else if ([scene isKindOfClass:[UIScene class]]) {
++        sceneSession = ((UIScene *)scene).session;
++    }
++    NSString *role = sceneSession.role;
++    if (![role isKindOfClass:[NSString class]]) return NO;
++    // UIWindowSceneSessionRoleExternalDisplay (iOS 13-15),
++    // UIWindowSceneSessionRoleExternalDisplayNonInteractive (iOS 16+), CarPlay:
++    // anything that is not the interactive device scene.
++    return ![role isEqualToString:UIWindowSceneSessionRoleApplication];
++}
++
++typedef void (*GRSceneLifecycle)(id, SEL, id);
++
++static void GRSceneDidBecomeActive(id self, SEL selector, id scene)
++{
++    if (GRIsExternalDisplayScene(scene, nil)) return;
++    if (GRSceneDidBecomeActiveOriginal) {
++        ((GRSceneLifecycle)GRSceneDidBecomeActiveOriginal)(self, selector, scene);
++    }
++}
++
++static void GRSceneWillResignActive(id self, SEL selector, id scene)
++{
++    if (GRIsExternalDisplayScene(scene, nil)) return;
++    if (GRSceneWillResignActiveOriginal) {
++        ((GRSceneLifecycle)GRSceneWillResignActiveOriginal)(self, selector, scene);
++    }
++}
++
++static void GRSceneWillEnterForeground(id self, SEL selector, id scene)
++{
++    if (GRIsExternalDisplayScene(scene, nil)) return;
++    if (GRSceneWillEnterForegroundOriginal) {
++        ((GRSceneLifecycle)GRSceneWillEnterForegroundOriginal)(self, selector, scene);
++    }
++}
++
++static void GRSceneDidEnterBackground(id self, SEL selector, id scene)
++{
++    if (GRIsExternalDisplayScene(scene, nil)) return;
++    if (GRSceneDidEnterBackgroundOriginal) {
++        ((GRSceneLifecycle)GRSceneDidEnterBackgroundOriginal)(self, selector, scene);
++    }
++}
++
++static void GRHookSceneLifecycle(Class sceneDelegateClass, SEL selector,
++                                 IMP replacement, IMP *original)
++{
++    Method method = class_getInstanceMethod(sceneDelegateClass, selector);
++    *original = method ? method_getImplementation(method) : NULL;
++    if (!method) return; // the delegate does not forward this one; nothing to gate
++    if (!class_addMethod(sceneDelegateClass, selector, replacement,
++                         method_getTypeEncoding(method))) {
++        method_setImplementation(method, replacement);
++    }
++}
+ 
+ static BOOL GRIsLaunchURL(NSURL *url)
+ {
+@@ -140,6 +223,16 @@
+ static void GRSceneWillConnect(id self, SEL selector, id scene,
+                                id session, id options)
+ {
++    if (GRIsExternalDisplayScene(scene, session)) {
++        // No window and no second main(): iOS keeps mirroring the phone.
++        return;
++    }
++    if (GRMainSceneConnected) {
++        // Only the first device scene may start the app (SDL would run
++        // main() again for any later one).
++        return;
++    }
++    GRMainSceneConnected = YES;
+     if ([options respondsToSelector:@selector(URLContexts)]) {
+         GRStoreLaunchURLContexts([options URLContexts]);
+     }
+@@ -227,6 +320,15 @@
+         class_addMethod(sceneDelegateClass, openURLContexts,
+                         (IMP)GRSceneOpenURLContexts, "v@:@@");
+     }
++
++    GRHookSceneLifecycle(sceneDelegateClass, @selector(sceneDidBecomeActive:),
++                         (IMP)GRSceneDidBecomeActive, &GRSceneDidBecomeActiveOriginal);
++    GRHookSceneLifecycle(sceneDelegateClass, @selector(sceneWillResignActive:),
++                         (IMP)GRSceneWillResignActive, &GRSceneWillResignActiveOriginal);
++    GRHookSceneLifecycle(sceneDelegateClass, @selector(sceneWillEnterForeground:),
++                         (IMP)GRSceneWillEnterForeground, &GRSceneWillEnterForegroundOriginal);
++    GRHookSceneLifecycle(sceneDelegateClass, @selector(sceneDidEnterBackground:),
++                         (IMP)GRSceneDidEnterBackground, &GRSceneDidEnterBackgroundOriginal);
+ }
+ 
+ static void GRInstallSceneURLHooks(void)

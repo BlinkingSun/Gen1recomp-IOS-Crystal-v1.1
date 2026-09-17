@@ -1,0 +1,589 @@
+diff --git a/lib/Device.lua b/lib/Device.lua
+index 0b3a2c3..a3ed1ba 100644
+--- a/lib/Device.lua
++++ b/lib/Device.lua
+@@ -124,4 +124,34 @@ function Device.invalidate()
+   info, isMobile = nil, nil
+ end
+ 
++-- LOVE 12's Metal backend (iOS, macOS): custom clip-space output lands in
++-- a canvas the OTHER way up from OpenGL, so every place this mod bypasses
++-- transform_projection asks here before flipping clip Y.  A renderer string
++-- mentioning Metal is not enough on its own -- LOVE 11 keeps the OpenGL
++-- canvas convention -- so the major version gates it (Battle Art's rule).
++local metal = nil
++function Device.metal()
++  if metal ~= nil then return metal end
++  metal = false
++  if not (love and love.getVersion and love.graphics
++          and love.graphics.getRendererInfo) then return false end
++  local okV, major = pcall(love.getVersion)
++  if not okV or type(major) ~= "number" or major < 12 then return false end
++  local ok, name, version, vendor, dev = pcall(love.graphics.getRendererInfo)
++  if not ok then return false end
++  local api = tostring(name):lower()
++  -- Apple's desktop OpenGL driver calls itself "OpenGL 4.1 Metal - ...": an
++  -- OpenGL renderer is OpenGL whatever its version string mentions.  Only
++  -- OpenGL ES on an Apple device is LOVE's Metal compatibility path.
++  if api:find("opengl", 1, true) and not api:find("opengl es", 1, true) then
++    metal = false
++    return false
++  end
++  local info = table.concat({ api, tostring(version), tostring(vendor),
++                              tostring(dev) }, " "):lower()
++  metal = api:find("metal", 1, true) ~= nil
++       or (info:find("apple", 1, true) ~= nil and api:find("opengl es", 1, true) ~= nil)
++  return metal
++end
++
+ return Device
+diff --git a/lib/Gen2Bridge.lua b/lib/Gen2Bridge.lua
+index 9b1d0f2..07803ba 100644
+--- a/lib/Gen2Bridge.lua
++++ b/lib/Gen2Bridge.lua
+@@ -86,6 +86,29 @@ function Bridge.install()
+     return r
+   end
+ 
++  -- Crystal's tilesets are two VRAM banks baked into one 256-tile sheet,
++  -- and Map:tileAt answers the block's RAW byte (0-127 either bank).  The
++  -- mesher reads that id in seventeen places -- roof rows, cap tiles,
++  -- band matching, the flat rules -- and every one of them indexes the
++  -- atlas with it, so a bank-1 wall wore bank-0 art (a magenta gable on
++  -- New Bark's houses).  Answer the SHEET id from the class itself, once,
++  -- the way the engine's own bake resolves it (src/world/gen2/TileAttrs.lua
++  -- sheetTileId); nothing on a Gen 2 boot reads Map:tileAt but this mod
++  -- (the engine's only caller is the Gen 1 TileRenderer).  Idempotent:
++  -- a sheet id fed back through the remap answers itself, so the grid
++  -- build's own remap (Structures.forMap) stays harmless.  Gold and Silver
++  -- have no tileAttrs and answer the raw id unchanged.
++  if not Map.__terrariumSheetTiles and Map.tileAt then
++    Map.__terrariumSheetTiles = true
++    local rawTileAt = Map.tileAt
++    local Gen2Terrain = V.require("Gen2Terrain")
++    Map.tileAt = function(self, tx, ty)
++      local raw = rawTileAt(self, tx, ty)
++      if raw == nil or not (self.tileset and self.tileset.tileAttrs) then return raw end
++      return Gen2Terrain.sheetTileId(self, raw)
++    end
++  end
++
+   -- Gold's NPCs carry Gen 1's seven-value pose() (the engine added it for
+   -- gen2compat, src/world/gen2/Npc.lua), but its Player does not -- and
+   -- the billboard pass poses every entity through the same call.  Mirror
+diff --git a/lib/ShadowMap.lua b/lib/ShadowMap.lua
+index bb11610..3c6203d 100644
+--- a/lib/ShadowMap.lua
++++ b/lib/ShadowMap.lua
+@@ -176,6 +176,20 @@ local TO_UNIT = { 0.5, 0, 0, 0.5,
+                   0, 0.5, 0, 0.5,
+                   0, 0, 0.5, 0.5,
+                   0, 0, 0, 1 }
++-- The map is filled through the same folded projection as the scene, and
++-- LOVE 12's Metal backend stores that the other way up from OpenGL -- so
++-- the READ side has to know which way the rows run.  +1 = OpenGL (the fold
++-- lands clip +Y at the last row), -1 = Metal; nil until probed, the way
++-- Battle Art's ShadowMap does it: draw one quad through the sun shader
++-- into a 4x4 canvas and look at which end it landed on.
++local Device = V.require("Device")
++local vSign = nil
++local function toUnit(sign)
++  return { 0.5, 0, 0, 0.5,
++           0, 0.5 * sign, 0, 0.5,
++           0, 0, 0.5, 0.5,
++           0, 0, 0, 1 }
++end
+ 
+ -- world -> light clip space, for the pass that FILLS the map
+ ShadowMap.clipVP = IDENTITY
+@@ -563,7 +577,7 @@ local function fit(cx, cy, vw, vh)
+   proj = Mat4.mul(Mat4.scale(1, -1, 1), proj)
+ 
+   ShadowMap.clipVP = Mat4.mul(proj, view)
+-  ShadowMap.uvVP = Mat4.mul(TO_UNIT, ShadowMap.clipVP)
++  ShadowMap.uvVP = Mat4.mul(toUnit(vSign or 1), ShadowMap.clipVP)
+   -- what the frustum ended up covering, for probes: the lateral extent in
+   -- world pixels divided by RES is how fine a shadow edge can land
+   ShadowMap.extent = { r - l, t - b, far - near }
+@@ -689,9 +703,55 @@ end
+ 
+ -- Begin the sun pass. Returns false when it could not start, in which case
+ -- the caller must not draw into it or call finish.
++-- Which way this runtime stores a pass drawn through the folded projection.
++-- Fill a tiny canvas through the sun shader with a strip that covers only
++-- the +Y half of clip space (which the fold sends to the -Y half), then read
++-- back which end of the canvas it landed on.  OpenGL reads it back at the
++-- first rows (+1, the orientation the uv mapping was written for); Metal at
++-- the last rows (-1).  An unreadable or ambiguous answer falls back to the
++-- renderer name.
++local function probeVSign()
++  local ok, sign = pcall(function()
++    local sh, tex = getShader(), getBlank()
++    if not (sh and tex) then return nil end
++    local size = 8
++    local c = love.graphics.newCanvas(size, size, { dpiscale = 1 })
++    -- a strip from y = 0.2 to y = 1 in clip space, full width; the fold in
++    -- lightVP below is the same one fit() applies to the real map
++    local strip = love.graphics.newMesh(
++      { { -1, 0.2, 0, 0 }, { 1, 0.2, 1, 0 }, { 1, 1, 1, 1 }, { -1, 1, 0, 1 } },
++      "fan", "static")
++    strip:setTexture(tex)
++    love.graphics.push("all")
++    love.graphics.setCanvas(c)
++    love.graphics.clear(1, 1, 1, 1)
++    love.graphics.setShader(sh)
++    love.graphics.setColor(1, 1, 1, 1)
++    pcall(sh.send, sh, "lightVP", "row", Mat4.scale(1, -1, 1))
++    pcall(sh.send, sh, "model", "row", IDENTITY)
++    love.graphics.draw(strip)
++    love.graphics.pop()
++    local px = c:newImageData()
++    local function touched(row)
++      local r, g, b = px:getPixel(math.floor(size / 2), row)
++      return (r + g + b) < 2.7      -- anything the shader wrote is not the clear
++    end
++    local first, last = touched(0), touched(size - 1)
++    if first ~= last then return first and 1 or -1 end
++    return nil
++  end)
++  if ok and (sign == 1 or sign == -1) then return sign end
++  return Device.metal() and -1 or 1
++end
++
+ function ShadowMap.begin(cx, cy, vw, vh)
+   local sh = getShader()
+   if not sh then return false end
++  -- the runtime's storage orientation, measured once before the first fit
++  if vSign == nil then
++    vSign = probeVSign()
++    ShadowMap.vSign = vSign
++  end
+   -- fit first: it is what decides which resolution rung this view wants
+   fit(cx, cy, vw, vh)
+   local c = getCanvas(ShadowMap.res)
+diff --git a/lib/Structures.lua b/lib/Structures.lua
+index 0bd2e8b..a8e5c87 100644
+--- a/lib/Structures.lua
++++ b/lib/Structures.lua
+@@ -48,6 +48,7 @@ local Assets = require("src.render.Assets")
+ local Map = require("src.world.Map")
+ local Buildings = V.require("Buildings")
+ local TileShape = V.require("TileShape")
++local Gen2Terrain = V.require("Gen2Terrain")
+ local Budget = V.require("BuildBudget")
+ 
+ local Structures = {}
+@@ -185,11 +186,20 @@ function Structures.forMap(map)
+   -- WATER and the other tilesets' own borders keep the full ring: a flat
+   -- sheet of water is what water looks like from above anyway, and an
+   -- interior's border is black already.
+-  local hullRingOnly = borderBlk and def.tileset == "OVERWORLD"
++  -- Gen 2 outdoor maps ring themselves with their own border block (the
++  -- forest on a town, the sea on a coast) and get the same cut: past
++  -- ROUND_RING there is nothing to carve into hulls.
++  local gen2 = Gen2Terrain.isGen2Map(map)
++  local hullRingOnly = borderBlk
++                       and (def.tileset == "OVERWORLD"
++                            or (gen2 and Gen2Terrain.isOutdoor(map)))
+                        and (TileRenderer.voidFill or "trees") == "trees"
+   local tw2, th2 = tw, th
+   local function tileLookup(tx, ty)
+     if tx >= 0 and ty >= 0 and tx < tw2 and ty < th2 then
++      -- Crystal: the SHEET id (bank-resolved), never the raw block byte --
++      -- atlas UVs, void tiles and pins all index the baked 256-tile sheet
++      if gen2 then return Gen2Terrain.sheetTile(map, tx, ty) end
+       return map:tileAt(tx, ty)
+     end
+     if not borderBlk then return nil end
+@@ -198,7 +208,9 @@ function Structures.forMap(map)
+                          or ty >= th2 + ROUND_RING) then
+       return nil
+     end
+-    return borderBlk[(ty % 4) * 4 + (tx % 4) + 1] or 0
++    local raw = borderBlk[(ty % 4) * 4 + (tx % 4) + 1] or 0
++    if gen2 then return Gen2Terrain.sheetTileId(map, raw) end
++    return raw
+   end
+   local shapeAt, tileAt = {}, {}
+   for ty = y0, y1 do
+diff --git a/lib/TerrainAtlas.lua b/lib/TerrainAtlas.lua
+index 0a65269..cf485c3 100644
+--- a/lib/TerrainAtlas.lua
++++ b/lib/TerrainAtlas.lua
+@@ -107,6 +107,15 @@ local function goldAtlas(map)
+     local pdata = Game and Game.data and Game.data.gen2Palettes
+     local set = pdata and Palettes.bgSet(pdata, def, "DAY")
+     local palMap = tileset.tilePalettes
++    -- Crystal bakes two VRAM banks into one 256-tile sheet and its palette
++    -- table is per raw tile + bank, not per sheet position: the engine's
++    -- attribute lookup (src/world/gen2/TileAttrs.lua) answers the slot for
++    -- a sheet id in either bank.  Gold/Silver have no tileAttrs and fall
++    -- through to the plain per-position table as before.
++    local okA, TileAttrs = pcall(require, "src.world.gen2.TileAttrs")
++    local slotOf = (okA and TileAttrs and TileAttrs.paletteSlot and tileset.tileAttrs)
++      and function(i) return TileAttrs.paletteSlot(tileset, i) end
++      or function(i) return palMap and palMap[i + 1] end
+     local src = Assets.imageData(path)
+     local w, h = src:getDimensions()
+     local out = love.image.newImageData(w, h)
+@@ -115,7 +124,7 @@ local function goldAtlas(map)
+       local rowBase = math.floor(y / 8) * perRow
+       for x = 0, w - 1 do
+         local r, g, b, a = src:getPixel(x, y)
+-        local slot = palMap and palMap[rowBase + math.floor(x / 8) + 1]
++        local slot = slotOf(rowBase + math.floor(x / 8))
+         local pal = set and slot and set[slot]
+         if pal then
+           local shade = math.floor((1 - r) * 3 + 0.5) + 1
+diff --git a/lib/TileShape.lua b/lib/TileShape.lua
+index 7e8bd08..fb37c45 100644
+--- a/lib/TileShape.lua
++++ b/lib/TileShape.lua
+@@ -45,6 +45,8 @@ local V = ...
+ -- this file used to skip (lib/WaterMap.lua). Loaded at the top because it
+ -- has no dependencies of its own -- it reads Game lazily, inside a call.
+ local WaterMap = V.require("WaterMap")
++-- Gen 2 cell classification (collision byte + palettes); nil on Gen 1
++local Gen2Terrain = V.require("Gen2Terrain")
+ 
+ local TileShape = {}
+ 
+@@ -206,12 +208,34 @@ function TileShape.heights()
+   return out
+ end
+ 
++-- The profile entry for one tileset, keyed by LINEAGE as well as by name.
++-- Gold and Crystal both call their overworld sheet TILESET_JOHTO, and the
++-- two sheets do not agree tile for tile (Crystal's is two VRAM banks baked
++-- to 256 tiles; see lib/Gen2Terrain.lua).  The entries shipped under the
++-- bare name were measured on Gold, so:
++--   gen1     -> tilesets[id]                (unchanged)
++--   gs       -> tilesets[id .. "@gs"], else tilesets[id]
++--   crystal  -> tilesets[id .. "@crystal"]  only
++-- With no entry Crystal resolves every cell from its collision byte and
++-- palettes instead (TileShape.at), which is what made it playable at all:
++-- Gold's cylinder list on Crystal's sheet was the town-of-trees bug.
++local function profileEntry(s, tilesetId)
++  local tilesets = s and s.tilesets
++  if not (tilesets and tilesetId) then return nil end
++  local lineage = V.require("Gen2Terrain").lineage()
++  if lineage == "gen1" then return tilesets[tilesetId] end
++  local keyed = tilesets[tilesetId .. "@" .. lineage]
++  if keyed ~= nil then return keyed end
++  if lineage == "gs" then return tilesets[tilesetId] end
++  return nil
++end
++
+ -- tile id -> class, from the hand-authored groups for one tileset. Unknown
+ -- class names are dropped rather than trusted: a typo in the data file
+ -- should degrade to the derived default, not invent a zero-height class.
+ local function authoredGroups(tilesetId, heights)
+   local s = load()
+-  local entry = s and s.tilesets and s.tilesets[tilesetId]
++  local entry = profileEntry(s, tilesetId)
+   local out = {}
+   if not entry then return out end
+   for class, tiles in pairs(entry) do
+@@ -247,7 +271,7 @@ end
+ -- nothing else (336 vs 352, clean).
+ local function authoredConditions(tilesetId, heights)
+   local s = load()
+-  local entry = s and s.tilesets and s.tilesets[tilesetId]
++  local entry = profileEntry(s, tilesetId)
+   if type(entry) ~= "table" then return nil end
+   local out, any = {}, false
+ 
+@@ -404,6 +428,15 @@ function TileShape.at(map, shapes, tile, tx, ty)
+   if not s or s.authored then return s end
+   local cx = math.floor(tx / 2)
+   local cy = math.floor(ty / 2)
++  -- Gen 2: the cell's COLL_* byte and its tiles' palette slots say what it
++  -- is (lib/Gen2Terrain.lua), and that answer outranks every tile-level
++  -- rule below: there is no walkable set, no water set and no grass tile
++  -- on a Gold or Crystal tileset for those rules to read.  Only a pin from
++  -- a lineage-keyed profile entry (handled above, s.authored) beats it.
++  local g2 = Gen2Terrain.shapeClass(map, cx, cy)
++  if g2 then
++    return shapes.classes[g2] or shapes.classes.wall
++  end
+   -- WATER, and the cell is the wrong granularity for it. Collision judges a
+   -- cell by its bottom-left tile, which is why this rule is a cell rule --
+   -- but water is the one class whose ART is authored per TILE. Gen 1 draws
+@@ -468,7 +501,7 @@ function TileShape.figures(tilesetId)
+   if hit ~= nil then return hit or nil end
+ 
+   local s = load()
+-  local entry = s and s.tilesets and s.tilesets[tilesetId]
++  local entry = profileEntry(s, tilesetId)
+   local list = entry and entry.figures
+   local out = {}
+   if type(list) == "table" then
+@@ -534,7 +567,7 @@ function TileShape.propBg(tilesetId)
+   if hit ~= nil then return hit or nil end
+ 
+   local s = load()
+-  local entry = s and s.tilesets and s.tilesets[tilesetId]
++  local entry = profileEntry(s, tilesetId)
+   local list = entry and entry.prop_bg
+   local out, any = {}, false
+   if type(list) == "table" then
+@@ -579,7 +612,7 @@ end
+ -- the Plateau's gate walls are cut into a hillside.
+ function TileShape.bookcaseBackfill(tilesetId)
+   local s = load()
+-  local entry = s and s.tilesets and s.tilesets[tilesetId]
++  local entry = profileEntry(s, tilesetId)
+   local mode = entry and entry.bookcase_backfill
+   return mode == "above" and mode or nil
+ end
+diff --git a/lib/Trees3D.lua b/lib/Trees3D.lua
+index 508877e..aa0bd32 100644
+--- a/lib/Trees3D.lua
++++ b/lib/Trees3D.lua
+@@ -195,6 +195,11 @@ Trees3D.MAX_TRIS = 1200
+ -- Whole-map ceiling. Past this the map keeps its hulls rather than paying
+ -- a build hitch measured in seconds.
+ Trees3D.MAX_TREES = 900
++-- Johto's towns are ringed two and three blocks deep in forest and Violet
++-- City alone carries 650 forest cells inside its border; the Kanto ceiling
++-- would hand every big Johto town the plain hulls.  Gen 2 maps get their
++-- own, and the biggest woods (Ilex) still fall back.
++Trees3D.MAX_TREES_GEN2 = 1400
+ 
+ -- uv.y above this samples the atlas strip holding the leaf sprite; it must
+ -- match CARD_STRIP in tools/optimize_tree_glb.py.
+@@ -472,6 +477,14 @@ Trees3D.lastPaint = nil
+ -- carves the hull from: the 2x2 group's anchor first, then the per-cell
+ -- round tiles. Shades missing from one are filled from the next.
+ local function treeTiles(map)
++  -- Gen 2: no per-tile profile to read; the tiles are whatever the map
++  -- draws in its forest and lone-tree cells (lib/Gen2Terrain.lua), which
++  -- is exactly the set the hulls are carved from
++  local okG, Gen2Terrain = pcall(V.require, "Gen2Terrain")
++  if okG and Gen2Terrain and Gen2Terrain.isGen2Map(map) then
++    local list = Gen2Terrain.treeTiles(map)
++    if list then return list end
++  end
+   local okP, prof = pcall(V.data, "voxel_heights")
+   local entry = okP and type(prof) == "table" and prof.tilesets
+                 and map and map.tileset and prof.tilesets[map.tileset.id]
+@@ -1201,11 +1214,14 @@ local function meshesFor(map)
+       meshes[id] = false
+       return nil
+     end
+-    if #sites > Trees3D.MAX_TREES then
++    local okG, Gen2Terrain = pcall(V.require, "Gen2Terrain")
++    local ceiling = (okG and Gen2Terrain and Gen2Terrain.isGen2Map(map))
++      and Trees3D.MAX_TREES_GEN2 or Trees3D.MAX_TREES
++    if #sites > ceiling then
+       if V.mod and V.mod.log then
+         pcall(V.mod.log.warn, V.mod.log,
+               "trees: %d sites on this map is over the %d ceiling -- keeping "
+-              .. "the hulls here", #sites, Trees3D.MAX_TREES)
++              .. "the hulls here", #sites, ceiling)
+       end
+       meshes[id] = false
+       return nil
+diff --git a/lib/Voxel3D.lua b/lib/Voxel3D.lua
+index 128af60..87e0368 100644
+--- a/lib/Voxel3D.lua
++++ b/lib/Voxel3D.lua
+@@ -3523,6 +3523,28 @@ end
+ -- way either way.
+ Voxel3D.camera = nil
+ 
++-- Clip-space Y and LOVE's canvas.  Mat4.perspective / Mat4.ortho emit
++-- textbook GL clip space (+Y up); a pass that bypasses LOVE's own
++-- transform_projection (this one) comes out mirrored in a canvas, so the
++-- projection is folded through scale(1, -1, 1) and every clip->canvas
++-- conversion reads Y down from the top.  On LOVE 12's Metal backend the
++-- folded image is stored the other way up -- and the ENGINE undoes that
++-- at the composite (src/render/Renderer.lua:1042 blits the override with
++-- -1/dpiY on iOS; Gold's World:draw does the same once patched), exactly
++-- as it does for Battle Art.  So the fold stays unconditional here; what
++-- Metal changes for this file is only the 2D overlays drawn INTO the scene
++-- canvas after the 3D pass (beginOverlay flips them so the engine's flip
++-- lands them upright) and the shadow map's storage orientation
++-- (lib/ShadowMap.lua probes it).
++local Device = V.require("Device")
++local CLIP_FLIP = Mat4.scale(1, -1, 1)
++function Voxel3D.clipFlip()
++  return CLIP_FLIP
++end
++function Voxel3D.canvasYSign()
++  return 1
++end
++
+ -- View and projection for a `vw` x `vh` world-pixel view centred on
+ -- (cx, cy) in world pixels. Returns the combined matrix.
+ function Voxel3D.viewProjection(cx, cy, vw, vh)
+@@ -3541,7 +3563,7 @@ function Voxel3D.viewProjection(cx, cy, vw, vh)
+                                   math.max(1, dist * 0.05), dist * 4 + 4096)
+     -- the same clip-space Y flip the orbit needs, for the same reason: we
+     -- bypass LOVE's transform_projection and canvas coordinates run Y down
+-    proj = Mat4.mul(Mat4.scale(1, -1, 1), proj)
++    proj = Mat4.mul(Voxel3D.clipFlip(), proj)
+     -- world up, so the horizon stays level -- a placed camera that rolled
+     -- with its own pitch would tip the whole arena
+     return Mat4.mul(proj, Mat4.lookAt(eye, focus, { 0, 1, 0 }))
+@@ -3572,7 +3594,7 @@ function Voxel3D.viewProjection(cx, cy, vw, vh)
+   -- vertically mirrored: north at the bottom and buildings extruding
+   -- downward. Winding flips with it, which is free here because the pass
+   -- draws with culling off.
+-  proj = Mat4.mul(Mat4.scale(1, -1, 1), proj)
++  proj = Mat4.mul(Voxel3D.clipFlip(), proj)
+   return Mat4.mul(proj, Mat4.lookAt(eye, focus, up))
+ end
+ 
+@@ -3609,7 +3631,7 @@ function Voxel3D.horizonY(h)
+   local y = m[5] * dx + m[7] * dz
+   local w = m[13] * dx + m[15] * dz
+   if w <= 1e-6 then return nil end
+-  return (y / w * 0.5 + 0.5) * h
++  return (y / w * 0.5 * Voxel3D.canvasYSign() + 0.5) * h
+ end
+ 
+ -- ------- the hour's light
+@@ -3711,7 +3733,7 @@ function Voxel3D.skyBody(w, h)
+   local amt, color = DayNight.glow()
+   return {
+     x = (x / ww * 0.5 + 0.5) * w,
+-    y = (y / ww * 0.5 + 0.5) * h,
++    y = (y / ww * 0.5 * Voxel3D.canvasYSign() + 0.5) * h,
+     moon = b.moon,
+     glowAmt = amt,
+     glowColor = color,
+@@ -4951,7 +4973,7 @@ function Voxel3D.project(wx, wy, wz)
+   -- viewProjection already flipped clip-space Y into LOVE's Y-down canvas
+   -- convention, so both axes map the same way here -- no second flip
+   local x = (cx / cw * 0.5 + 0.5) * canvasW
+-  local y = (cy / cw * 0.5 + 0.5) * canvasH
++  local y = (cy / cw * 0.5 * Voxel3D.canvasYSign() + 0.5) * canvasH
+   return x, y, (Voxel3D.focusW or cw) / cw
+ end
+ 
+@@ -4999,6 +5021,7 @@ function Voxel3D.projectDepth(wx, wy, wz)
+   return (cz / cw) * 0.5 + 0.5
+ end
+ 
++local overlayFlipped = false
+ function Voxel3D.beginOverlay()
+   if not canvas then return false end
+   love.graphics.setShader()
+@@ -5006,11 +5029,31 @@ function Voxel3D.beginOverlay()
+   local ok = pcall(love.graphics.setCanvas, canvas)
+   if not ok then return false end
+   love.graphics.setColor(1, 1, 1, 1)
++  -- Metal: the 3D pass below is stored upside down (see clipFlip) and the
++  -- engine flips the whole canvas at the composite.  A 2D overlay drawn in
++  -- here the ordinary way would come out mirrored and misplaced by that
++  -- flip, so draw it mirrored to begin with: same y as project() answers,
++  -- measured from the bottom, sprite upside down.  One transform, every
++  -- overlay caller (emotes, ambient life, VFX, weather) inherits it.
++  overlayFlipped = false
++  if Device.metal() then
++    local okH, ch = pcall(canvas.getHeight, canvas)
++    if okH and ch then
++      love.graphics.push()
++      love.graphics.translate(0, ch)
++      love.graphics.scale(1, -1)
++      overlayFlipped = true
++    end
++  end
+   return true
+ end
+ 
+ -- Close the overlay begun by beginOverlay.
+ function Voxel3D.endOverlay()
++  if overlayFlipped then
++    love.graphics.pop()
++    overlayFlipped = false
++  end
+   love.graphics.setCanvas()
+   active, activeShader = false, nil
+ end
+diff --git a/lib/WaterMap.lua b/lib/WaterMap.lua
+index 6876651..1f2f26b 100644
+--- a/lib/WaterMap.lua
++++ b/lib/WaterMap.lua
+@@ -120,6 +120,23 @@ function WaterMap.invalidate()
+   sets = {}
+ end
+ 
++-- Gen 2 (Gold / Crystal): there is no water TILE set and cellTile answers
++-- a collision byte, so the cell question goes to the collision byte
++-- (lib/Gen2Terrain.lua) and the tile question to the tile's palette slot:
++-- a tile drawn with the WATER palette is surface, the brown bank is not.
++local function gen2(map)
++  local G = V.require("Gen2Terrain")
++  return G.isGen2Map(map) and G or nil
++end
++
++local function gen2SurfaceTile(G, map, tile)
++  local ts = map.tileset
++  local okA, TileAttrs = pcall(require, "src.world.gen2.TileAttrs")
++  if not (okA and TileAttrs and TileAttrs.paletteSlot) then return false end
++  local slot = TileAttrs.paletteSlot(ts, tile)
++  return G.PALETTE[slot] == "water"
++end
++
+ -- May this map's tileset hold water at all? (rule 1)
+ function WaterMap.drawsWater(map)
+   local name = map and map.def and map.def.tileset
+@@ -132,6 +149,8 @@ end
+ -- The tile's own art is the tileset's TRUE water (rule 2's "real water").
+ function WaterMap.isDeepTile(map, tile)
+   if tile == nil then return false end
++  local G = gen2(map)
++  if G then return gen2SurfaceTile(G, map, tile) end
+   return setsFor(map).water[tile] == true
+ end
+ 
+@@ -140,11 +159,15 @@ end
+ -- tile that answers true here is painted as surface; the bank is not.
+ function WaterMap.isSurfaceTile(map, tile)
+   if tile == nil then return false end
++  local G = gen2(map)
++  if G then return gen2SurfaceTile(G, map, tile) end
+   local s = setsFor(map)
+   return s.water[tile] == true or s.shore[tile] == true
+ end
+ 
+ local function trueWaterCell(map, s, cx, cy)
++  local G = gen2(map)
++  if G then return G.isWaterCell(map, cx, cy) == true end
+   local ok, tile = pcall(map.cellTile, map, cx, cy)
+   return ok and tile ~= nil and s.water[tile] == true
+ end
+@@ -157,6 +180,8 @@ end
+ function WaterMap.surfaceCell(map, cx, cy)
+   if not (map and map.cellTile) then return false end
+   if not WaterMap.drawsWater(map) then return false end
++  local G = gen2(map)
++  if G then return G.isWaterCell(map, cx, cy) == true end
+   local s = setsFor(map)
+   local ok, tile = pcall(map.cellTile, map, cx, cy)
+   if not ok or tile == nil then return false end
+diff --git a/lib/WorldMap3D.lua b/lib/WorldMap3D.lua
+index 86e4720..2e799a1 100644
+--- a/lib/WorldMap3D.lua
++++ b/lib/WorldMap3D.lua
+@@ -1273,7 +1273,8 @@ local function viewProjection(cx, cz, dist, pitch, yaw)
+   local w, h = love.graphics.getDimensions()
+   local proj = Mat4.perspective(FOV, w / math.max(1, h), 1.0, math.max(dist * 6, 2000))
+   -- clip-space Y is flipped for LOVE's Y-down canvas; see lib/Voxel3D.lua
+-  proj = Mat4.mul(Mat4.scale(1, -1, 1), proj)
++  -- (identity on Metal, where the canvas already runs that way)
++  proj = Mat4.mul(V.require("Voxel3D").clipFlip(), proj)
+   local view = Mat4.lookAt(eyeFor(cx, cz, dist, pitch, yaw), { cx, 0, cz }, { 0, 1, 0 })
+   return Mat4.mul(proj, view)
+ end
+@@ -1304,7 +1305,7 @@ local function project(x, y, z)
+   local cw = m[13] * x + m[14] * y + m[15] * z + m[16]
+   if cw <= 0.001 then return nil end
+   local w, h = love.graphics.getDimensions()
+-  return (cx / cw * 0.5 + 0.5) * w, (cy / cw * 0.5 + 0.5) * h, cw
++  return (cx / cw * 0.5 + 0.5) * w, (cy / cw * 0.5 * V.require("Voxel3D").canvasYSign() + 0.5) * h, cw
+ end
+ 
+ -- ============================================================================

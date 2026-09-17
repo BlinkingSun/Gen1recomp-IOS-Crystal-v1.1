@@ -1,0 +1,7 @@
+work/
+dist/
+*.gb
+*.gbc
+*.sav
+*.ipa
+.DS_Store

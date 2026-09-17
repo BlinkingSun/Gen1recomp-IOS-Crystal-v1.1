@@ -1,0 +1,28 @@
+diff --git a/src/world/gen2/World.lua b/src/world/gen2/World.lua
+index 66b2629..2fceb7f 100644
+--- a/src/world/gen2/World.lua
++++ b/src/world/gen2/World.lua
+@@ -11684,7 +11684,22 @@ function World:draw()
+   local fadeStepped = false
+   if override then
+     G.setColor(1, 1, 1, 1)
+-    G.draw(override, 0, 0)
++    -- A pipeline hands back a WINDOW-resolution image (its scene rasterises
++    -- at pixel size; see src/render/Renderer.lua:1042, which blits the Gen 1
++    -- override at 1/dpi).  Fit it to the playfield the same way instead of
++    -- pasting it 1:1 -- on a phone that showed the top-left third of the
++    -- scene with the player at the bottom edge -- and on iOS under LOVE 12
++    -- flip it exactly as the Gen 1 renderer does (a custom-projection pass
++    -- lands the other way up in a Metal canvas).
++    local ow, oh = override:getDimensions()
++    local sx, sy = w / math.max(1, ow), h / math.max(1, oh)
++    local loveMajor = love.getVersion()
++    if love.system and love.system.getOS and love.system.getOS() == "iOS"
++        and loveMajor >= 12 then
++      G.draw(override, 0, h, 0, sx, -sy)
++    else
++      G.draw(override, 0, 0, 0, sx, sy)
++    end
+   elseif tilt then
+     self:drawTilted(w, h, s, gw, gh)
+   else
