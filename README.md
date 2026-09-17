@@ -1,7 +1,6 @@
 # Gen1recomp-IOS-Crystal v1.1
 
-**Terrarium for Pokémon Crystal** — 
-Gen 2 support for the [Terrarium](https://github.com/BrenoBertucci/Terrarium)
+**Terrarium for Pokémon Crystal:** Gen 2 support for the [Terrarium](https://github.com/BrenoBertucci/Terrarium)
 voxel-diorama mod on the [gen1recomp](https://github.com/bryanthaboi/gen1recomp)
 engine: Johto's towns, routes, caves and interiors rendered as a 3D voxel
 world — on **iOS** as well as desktop.
