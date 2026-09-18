@@ -47,7 +47,7 @@ engine rebuilds everything from it on your device and verifies the SHA-1.
   switched off, so the opponent is visible again from the first frame.
 - Optional **Black/White battle sprites** for all 251 species (front, back
   and shiny) in the engine's own battle screen, built by `battle-art/build.sh`
-  from absol89's Battle Art collections.
+  the way absol89's Battle Art builds its collections.
 
 ![Crystal battle with Black/White sprites](screenshots/battle-crystal-bw.png)
 
@@ -93,10 +93,10 @@ Then follow [docs/INSTALL.md](docs/INSTALL.md):
 4. Turn it on: on the desktop press **`v`** in-game (Terrarium's VOXEL hotkey cycles the
    camera level); on a phone set it once in `options.lua`:
    `gold = { pipelines = { terrarium_voxel = 3 } }` — Crystal's OPTIONS menu has no row for it.
-5. Optional battle sprites: `./battle-art/build.sh` (downloads Battle Art's
-   release zip, slices one Black/White frame per species, ~4 MB) →
-   `dist/CRYSTAL_BATTLE_ART/` goes in `mods/` next to Terrarium; enable it
-   under MODS in Crystal.
+5. Optional battle sprites: `./battle-art/build.sh` downloads each species'
+   Black/White animation from the Bulbagarden Archives (a few minutes, cached)
+   and keeps one frame per species (~4 MB) → `dist/CRYSTAL_BATTLE_ART/` goes
+   in `mods/` next to Terrarium; enable it under MODS in Crystal.
 
 ## Camera levels
 

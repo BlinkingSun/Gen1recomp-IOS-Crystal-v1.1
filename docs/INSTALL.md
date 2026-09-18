@@ -106,11 +106,17 @@ when its 3D pass cannot start.
 
 ## 7. Battle sprites (optional)
 
-`./battle-art/build.sh` downloads absol89's Battle Art release zip into
-`work/`, slices one Black/White frame per Gold/Silver/Crystal species (front,
-back, shiny) and writes `dist/CRYSTAL_BATTLE_ART/` (+ zip). Needs Python 3
-with Pillow (`pip3 install pillow`). Pass `--battle-art DIR` to use a Battle
-Art mod folder you already have, `--set gen3` for the Emerald-style set.
+`./battle-art/build.sh` downloads each Gold/Silver/Crystal species' Black/White
+animated PNG (front, back, shiny and shiny back: 1004 files) from the
+Bulbagarden Archives into `work/sprites-src`, cached, keeps the first frame of
+each, and writes `dist/CRYSTAL_BATTLE_ART/` (+ zip). Needs Python 3 with Pillow
+(`pip3 install pillow`) and network access. Pass `--battle-art DIR` to slice
+the same frames out of an absol89 Battle Art mod folder that already has its
+Gen 5 atlases instead (no network).
+
+The sprites are Game Freak's Black/White art; Battle Art's importer notes say
+it plainly: verify that you have the right to use them. None of it is in this
+repository.
 
 Install it like Terrarium: copy `dist/CRYSTAL_BATTLE_ART/` into `mods/` (iOS:
 `Documents/mods/`) and turn it on under **MODS** in Crystal, or add
