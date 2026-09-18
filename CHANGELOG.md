@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.2 — 2026-09-18
+
+- Terrarium patch: no paper anywhere in the two battle HUDs over the world (HP bars, "HP:" badge, frames and ball rows go through the palette shader's transparent-paper path; HP numbers are outlined like the names; rectangle fallbacks dropped). Message box and menus keep their paper.
+- Terrarium patch: the wipe into a battle is painted in window space after the 3D composite, clipped to the GB panel, with the engine's own patterns and colours; the flash phase is emulated with brief veils. Previously the squares landed as a grey block and the Poké Balls lost their palette.
+
 ## 0.4.1 — 2026-09-18
 
 - Terrarium patch: the scene stays up through a battle's ending. Gold emits `battle.ended` twice, from the battle model the moment the outcome is decided and from the screen when the faint, experience and fade are done; only the screen's now ends the staging. The world fades to white under the panel's own exit fade (and holds on a whiteout), as the original does.
