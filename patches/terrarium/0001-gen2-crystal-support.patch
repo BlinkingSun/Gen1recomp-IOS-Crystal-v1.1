@@ -1,3 +1,18 @@
+diff --git a/lib/BattleNav.lua b/lib/BattleNav.lua
+index 139610f..38ba3b1 100644
+--- a/lib/BattleNav.lua
++++ b/lib/BattleNav.lua
+@@ -230,6 +230,10 @@ local function partyLive()
+ end
+ 
+ function BattleNav.wants()
++  -- Gold's menus are not the Kanto layout this navigates; never take its
++  -- direction presses (see OverworldBattle.update).
++  local okB, Bridge = pcall(V.require, "Gen2Bridge")
++  if okB and Bridge and Bridge.isGen2 and Bridge.isGen2() then return nil end
+   local party = partyLive()
+   if party then return "party", party end
+   if not S.live then return nil end
 diff --git a/lib/Device.lua b/lib/Device.lua
 index 0b3a2c3..a3ed1ba 100644
 --- a/lib/Device.lua
@@ -242,7 +257,7 @@ index 9b1d0f2..71a1435 100644
    -- gen2compat, src/world/gen2/Npc.lua), but its Player does not -- and
    -- the billboard pass poses every entity through the same call.  Mirror
 diff --git a/lib/OverworldBattle.lua b/lib/OverworldBattle.lua
-index 67ced51..6d28c50 100644
+index 67ced51..f56de04 100644
 --- a/lib/OverworldBattle.lua
 +++ b/lib/OverworldBattle.lua
 @@ -58,6 +58,7 @@ local BattleScreenXY = V.require("BattleScreenXY")
@@ -390,7 +405,29 @@ index 67ced51..6d28c50 100644
    BattleCam.update(dt)
    -- the battle only exists once it has been pushed; a session opened at
    -- pushBattle time has it, one opened from battle.started was handed it
-@@ -560,6 +641,7 @@ function OverworldBattle.update(dt)
+@@ -513,14 +594,18 @@ function OverworldBattle.update(dt)
+         session.shot and session.shot.groundY)
+   -- the turn ribbon glides its medallions toward whoever the round
+   -- belongs to (see BattleRibbon)
+-  pcall(BattleRibbon.observe, session.battle, dt)
++  if not Gen2Bridge.isGen2() then pcall(BattleRibbon.observe, session.battle, dt) end
+   -- the animated mons advance a frame when their clock says so, BEFORE
+   -- the side textures are rendered from them (see MonPack.tick)
+-  pcall(MonPack.tick, dt)
++  if not Gen2Bridge.isGen2() then pcall(MonPack.tick, dt) end
+   -- the costume's dpad wrap needs the live battle so it can steal the
+   -- press before BattleState walks the Game Boy grid (see BattleNav).
+   -- A broken scene falls back to the engine's own screens: do not remap.
+-  if not session.broken then
++  -- The XY navigation, bag screen, ribbon and pack are Gen 1 plumbing: the
++  -- nav rewrites the battle menu's cursor from direction presses, which on
++  -- Gold sends the catch tutorial's scripted presses to RUN (an empty party
++  -- cannot run: the engine dies in Battle:runTurn). Gold gets none of them.
++  if not session.broken and not Gen2Bridge.isGen2() then
+     pcall(function()
+       V.require("BattleNav").observe(session.battle, session.shot,
+                                      session.arena,
+@@ -560,6 +645,7 @@ function OverworldBattle.update(dt)
    -- back to the GB's own pinned pic (see drawPicsLayer)
    if shot then
      shot.playerStaged = (textures and textures.player) and true or false
@@ -398,7 +435,7 @@ index 67ced51..6d28c50 100644
    end
    session.snapped = false
    if shot and shot.canvas then
-@@ -810,42 +892,100 @@ end
+@@ -810,42 +896,100 @@ end
  local gen2InnerPic = nil     -- BS2.drawPic captured by installGen2
  local gen2Texturing = false  -- lets the bake through the panel suppression
  
@@ -513,7 +550,7 @@ index 67ced51..6d28c50 100644
  local function sideVisible(battle, side)
    if side == "enemy" then
      if battle.showEnemyTrainer and battle.trainerPic then return true end
-@@ -973,9 +1113,9 @@ end
+@@ -973,9 +1117,9 @@ end
  -- staged shot, the white surround becomes the arena render, the panel's
  -- own full-screen white fill (Chrome.clear) is silenced for that one
  -- draw, and the enemy's flat pic stays out of the panel because the mon
@@ -526,7 +563,7 @@ index 67ced51..6d28c50 100644
  function OverworldBattle.installGen2()
    local okB, BS2 = pcall(require, "src.ui.gen2.BattleState")
    local okC, Chrome = pcall(require, "src.ui.gen2.Chrome")
-@@ -985,18 +1125,18 @@ function OverworldBattle.installGen2()
+@@ -985,18 +1129,18 @@ function OverworldBattle.installGen2()
  
    gen2InnerPic = BS2.drawPic
  
@@ -552,7 +589,7 @@ index 67ced51..6d28c50 100644
    local suppressClear = false
    local innerClear = Chrome.clear
    function Chrome.clear()
-@@ -1007,25 +1147,172 @@ function OverworldBattle.installGen2()
+@@ -1007,25 +1151,172 @@ function OverworldBattle.installGen2()
      return innerClear()
    end
  

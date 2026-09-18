@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.3 — 2026-09-18
+
+- Terrarium patch: fixes a crash in Crystal's catch tutorial (`Battle.lua:1099: attempt to index local 'mon'`). Terrarium's Kanto battle navigation rerouted direction presses to its own menu layout, so the tutorial's scripted DOWN landed on RUN instead of PACK, and an empty party cannot run. The navigation, XY bag screen, ribbon and pack are now inert on Gold.
+
 ## 0.4.2 — 2026-09-18
 
 - Terrarium patch: no paper anywhere in the two battle HUDs over the world (HP bars, "HP:" badge, frames and ball rows go through the palette shader's transparent-paper path; HP numbers are outlined like the names; rectangle fallbacks dropped). Message box and menus keep their paper.
