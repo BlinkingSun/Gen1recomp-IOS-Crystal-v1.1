@@ -72,7 +72,7 @@ index 9b1d0f2..07803ba 100644
    -- gen2compat, src/world/gen2/Npc.lua), but its Player does not -- and
    -- the billboard pass poses every entity through the same call.  Mirror
 diff --git a/lib/OverworldBattle.lua b/lib/OverworldBattle.lua
-index 67ced51..1f31491 100644
+index 67ced51..b26b849 100644
 --- a/lib/OverworldBattle.lua
 +++ b/lib/OverworldBattle.lua
 @@ -58,6 +58,7 @@ local BattleScreenXY = V.require("BattleScreenXY")
@@ -228,27 +228,77 @@ index 67ced51..1f31491 100644
    end
    session.snapped = false
    if shot and shot.canvas then
-@@ -811,15 +893,13 @@ local gen2InnerPic = nil     -- BS2.drawPic captured by installGen2
+@@ -810,42 +892,98 @@ end
+ local gen2InnerPic = nil     -- BS2.drawPic captured by installGen2
  local gen2Texturing = false  -- lets the bake through the panel suppression
  
++-- A trainer pic's paper is part of the image (colour 0 of the 2bpp art is
++-- opaque white), so a trainer card is keyed after the bake: near-white goes
++-- transparent. Pokemon cards are left alone (white can be inside the art).
++local keyShader = nil
++local keyCanvases = {}
++local function keyWhite(canvas, side)
++  local g = love.graphics
++  if keyShader == nil then
++    local ok, sh = pcall(g.newShader, [[
++      vec4 effect(vec4 c, Image t, vec2 uv, vec2 sc) {
++        vec4 p = Texel(t, uv);
++        if (p.a > 0.0 && p.r > 0.92 && p.g > 0.92 && p.b > 0.92) discard;
++        return p * c;
++      }
++    ]])
++    keyShader = ok and sh or false
++  end
++  if not keyShader then return canvas end
++  local w, h = canvas:getDimensions()
++  local out = keyCanvases[side]
++  if not (out and out:getWidth() == w and out:getHeight() == h) then
++    out = g.newCanvas(w, h)
++    keyCanvases[side] = out
++  end
++  g.push("all")
++  g.origin()
++  g.setCanvas(out)
++  g.clear(0, 0, 0, 0)
++  g.setBlendMode("alpha", "premultiplied")
++  g.setShader(keyShader)
++  g.setColor(1, 1, 1, 1)
++  g.draw(canvas)
++  g.pop()
++  return out
++end
++
  local function gen2SideTexture(screen, side)
 -  -- v1 stages the enemy only; the player's back pic stays in the panel
 -  if side ~= "enemy" then return nil end
    if not gen2InnerPic then return nil end
    local model = screen.battle
 -  local mon = model and model.enemy
-+  local mon = model and model[side]
-   if not mon then return nil end
+-  if not mon then return nil end
 -  -- the trainer's intro front pic belongs to the classic slot, and slides
 -  -- out there; only the MON stands on the field
 -  if screen.showEnemyTrainer then return nil end
++  local mon = model and model[side]
 +  local back = (side == "player")
-+  if side == "enemy" and screen.showEnemyTrainer then return nil end
-+  if back and screen.showPlayerBack then return nil end
++  local trainer = (side == "enemy") and screen.showEnemyTrainer and true or false
++  if not (mon or trainer) then return nil end
    local canvas = texCanvasFor(side)
    if not canvas then return nil end
    local g = love.graphics
-@@ -830,22 +910,33 @@ local function gen2SideTexture(screen, side)
+   local prev = g.getCanvas()
++  -- the pic box is cleared to white paper before a trainer pic is drawn;
++  -- a card wants only the pic, so white fills are dropped during the bake
++  local rect = g.rectangle
++  g.rectangle = function(mode, ...)
++    if mode == "fill" then
++      local r, gg, b = g.getColor()
++      if r > 0.95 and gg > 0.95 and b > 0.95 then return end
++    end
++    return rect(mode, ...)
++  end
+   gen2Texturing = true
+   local ok, err = pcall(function()
+     g.setCanvas(canvas)
      g.clear(0, 0, 0, 0)
      g.push()
      g.origin()
@@ -260,11 +310,13 @@ index 67ced51..1f31491 100644
      g.pop()
    end)
    gen2Texturing = false
++  g.rectangle = rect
    if prev then g.setCanvas(prev) else g.setCanvas() end
    if not ok then error(err, 0) end
    local BS2 = require("src.ui.gen2.BattleState")
 -  local ax = (BS2.ENEMY_PIC_TILE_X + BS2.ENEMY_PIC_TILES / 2) * 8
 -  local ay = (BS2.ENEMY_PIC_TILE_Y + BS2.ENEMY_PIC_TILES) * 8
+-  return { canvas = canvas, ax = ax, ay = ay, trainer = false }
 +  local ax, ay
 +  if back then
 +    ax = (BS2.PLAYER_PIC_TILE_X + BS2.PLAYER_PIC_TILES / 2) * 8
@@ -279,7 +331,8 @@ index 67ced51..1f31491 100644
 +    ax = (BS2.ENEMY_PIC_TILE_X + BS2.ENEMY_PIC_TILES / 2) * 8
 +    ay = (BS2.ENEMY_PIC_TILE_Y + BS2.ENEMY_PIC_TILES) * 8
 +  end
-   return { canvas = canvas, ax = ax, ay = ay, trainer = false }
++  if trainer then canvas = keyWhite(canvas, side) end
++  return { canvas = canvas, ax = ax, ay = ay, trainer = trainer }
  end
  
 --- Whether this side has anything to draw at all. Mirrors drawPicsLayer's own
@@ -288,7 +341,7 @@ index 67ced51..1f31491 100644
  local function sideVisible(battle, side)
    if side == "enemy" then
      if battle.showEnemyTrainer and battle.trainerPic then return true end
-@@ -985,18 +1076,20 @@ function OverworldBattle.installGen2()
+@@ -985,18 +1123,18 @@ function OverworldBattle.installGen2()
  
    gen2InnerPic = BS2.drawPic
  
@@ -302,9 +355,7 @@ index 67ced51..1f31491 100644
 +    local shot = self.dramaticShapeShot
 +    if shot and not gen2Texturing then
 +      if back and shot.playerStaged then return end
-+      if not back and shot.enemyStaged and not self.showEnemyTrainer then
-+        return
-+      end
++      if not back and shot.enemyStaged then return end
      end
      return gen2InnerPic(self, mon, back)
    end
@@ -316,7 +367,7 @@ index 67ced51..1f31491 100644
    local suppressClear = false
    local innerClear = Chrome.clear
    function Chrome.clear()
-@@ -1007,15 +1100,86 @@ function OverworldBattle.installGen2()
+@@ -1007,22 +1145,103 @@ function OverworldBattle.installGen2()
      return innerClear()
    end
  
@@ -325,12 +376,13 @@ index 67ced51..1f31491 100644
 +  -- instead of the white plates the panel screen never shows.
 +  local okF, Font = pcall(require, "src.render.Font")
 +  local hudLettering = false
++  local overShot = false   -- true only inside drawScene drawn over a shot
 +  local INK_OUT = { { 255, 255, 255 }, { 255, 255, 255 }, { 255, 255, 255 }, { 16, 24, 16 } }
 +  local INK_LIGHT = { { 255, 255, 255 }, { 255, 255, 255 }, { 255, 255, 255 }, { 224, 248, 208 } }
 +  local OFFS = { { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 }, { -1, -1 }, { 1, -1 }, { -1, 1 }, { 1, 1 } }
 +  local innerPrint = Chrome.printThrough
 +  function Chrome.printThrough(text, tx, ty, palette, invert, raw)
-+    if not (hudLettering and okF and Font and OverworldBattle.shot()) then
++    if not (hudLettering and overShot and okF and Font) then
 +      return innerPrint(text, tx, ty, palette, invert, raw)
 +    end
 +    local codes = Font.encode(text)
@@ -372,13 +424,20 @@ index 67ced51..1f31491 100644
 +    AnimView.terrariumGoldHook = true
 +    local innerFill = AnimView.fillBackground
 +    function AnimView:fillBackground(...)
-+      if OverworldBattle.shot() then return end
++      if overShot then return end
 +      return innerFill(self, ...)
 +    end
 +  end
 +
    local innerWide = BS2.drawWidescreen
    function BS2:drawWidescreen(winW, winH)
++    -- During the wipe INTO the battle the transition state draws this
++    -- screen into its own canvas; the shot waits until the screen is on top.
++    local stack = self.game and self.game.stack
++    if stack and stack.top and stack:top() ~= self then
++      self.dramaticShapeShot = nil
++      return innerWide(self, winW, winH)
++    end
      local shot = OverworldBattle.shot()
 +    local canvas = shot and shot.canvas or OverworldBattle.goldBackdrop()
      self.dramaticShapeShot = shot
@@ -406,6 +465,15 @@ index 67ced51..1f31491 100644
      local scale = Chrome.fitScale(winW, winH)
      local ox, oy = Chrome.fitOrigin(winW, winH, scale)
      G.push()
+     G.translate(ox, oy)
+     G.scale(scale, scale)
+     suppressClear = true
++    overShot = true
+     local ok, err = pcall(self.drawScene, self)
++    overShot = false
+     suppressClear = false
+     G.pop()
+     if not ok then error(err, 0) end
 diff --git a/lib/ShadowMap.lua b/lib/ShadowMap.lua
 index bb11610..3c6203d 100644
 --- a/lib/ShadowMap.lua

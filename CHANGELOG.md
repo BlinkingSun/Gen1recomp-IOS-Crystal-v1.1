@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1 — 2026-09-18
+
+- Terrarium patch: enemy trainers stand in the arena too (their paper keyed out of the card), the shot waits until the battle screen is on top so the engine's wipe is untouched, and the intro-paper skip and outlined lettering apply only while drawing over a shot.
+- Known: the engine's own battle wipe over Terrarium's Gold world shows a grey block and pink squares for a second; it did so before this kit too.
+
 ## 0.3.0 — 2026-09-18
 
 - Terrarium patch: battles on the map work on Gold. The Gen 1 staging is driven from the Gen 2 battle *screen* (the event payload hands over the model), the billboard bake scales by pack density, the player's back sprite stands in the foreground like Kanto's, staged sides are no longer drawn flat in the panel, the intro slide's white paper is skipped over a shot, and the HUD is lettered onto the world with an outline instead of white plates. When no arena fits, a softened snapshot of the last overworld frame backs the plain screen. The 3D-BTL and BACK SPRITES rows work on Gold.

@@ -54,6 +54,7 @@ engine rebuilds everything from it on your device and verifies the SHA-1.
   builds its collections.
 
 ![Crystal battle on the map](screenshots/battle-crystal-staged.png)
+![Trainer battle intro on the map](screenshots/battle-crystal-staged-trainer.png)
 
 Not (yet) ported: Terrarium's wild roamers, weather, ecology and the rest of
 its Kanto-specific features are **untested on Gen 2**. Trainer sprites stay
