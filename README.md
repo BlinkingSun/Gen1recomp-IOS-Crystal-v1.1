@@ -43,6 +43,13 @@ engine rebuilds everything from it on your device and verifies the SHA-1.
 - Terrarium's shadows, tilt-shift, day/night and camera ladder as on Kanto.
 - Correct rendering on iOS (Metal): upright, centred on the player, in either
   orientation.
+- Battles that work: Terrarium's unfinished Gold "battle on the map" is
+  switched off, so the opponent is visible again from the first frame.
+- Optional **Black/White battle sprites** for all 251 species (front, back
+  and shiny) in the engine's own battle screen, built by `battle-art/build.sh`
+  from absol89's Battle Art collections.
+
+![Crystal battle with Black/White sprites](screenshots/battle-crystal-bw.png)
 
 Not (yet) ported: Terrarium's on-map battles, wild roamers, weather, ecology
 and the rest of its Kanto-specific features are **untested on Gen 2**; battles
@@ -55,6 +62,7 @@ apply.sh                       fetches the pinned engine + mod, applies everythi
 patches/engine/                two patches for gen1recomp v0.2.60 (iOS builds)
 patches/terrarium/             one patch for Terrarium ffecfa14 (its own files)
 overlay/terrarium/             NEW files added to Terrarium (the Gen 2 classifier, probes, tools)
+battle-art/                    the CRYSTAL_BATTLE_ART sprite mod: build script, mod code, species list
 docs/INSTALL.md                step by step, iOS and desktop
 docs/HOW-IT-WORKS.md           what was wrong and what each change does
 docs/TESTING.md                the headless probes and the Simulator workflow
@@ -85,6 +93,10 @@ Then follow [docs/INSTALL.md](docs/INSTALL.md):
 4. Turn it on: on the desktop press **`v`** in-game (Terrarium's VOXEL hotkey cycles the
    camera level); on a phone set it once in `options.lua`:
    `gold = { pipelines = { terrarium_voxel = 3 } }` — Crystal's OPTIONS menu has no row for it.
+5. Optional battle sprites: `./battle-art/build.sh` (downloads Battle Art's
+   release zip, slices one Black/White frame per species, ~4 MB) →
+   `dist/CRYSTAL_BATTLE_ART/` goes in `mods/` next to Terrarium; enable it
+   under MODS in Crystal.
 
 ## Camera levels
 

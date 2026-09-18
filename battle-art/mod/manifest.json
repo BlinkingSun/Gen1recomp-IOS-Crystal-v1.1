@@ -1,0 +1,19 @@
+{
+  "id": "CRYSTAL_BATTLE_ART",
+  "name": "Crystal Battle Art (Black/White sprites)",
+  "version": "0.1.0",
+  "api": 2,
+  "gen2compat": true,
+  "games": ["gen2"],
+  "entry": "main.lua",
+  "profile": "content",
+  "category": "GRAPHICS",
+  "game_version": ">=0.2.60 <2.0.0",
+  "priority": 50,
+  "dependencies": [],
+  "optional_dependencies": [],
+  "conflicts": [],
+  "permissions": [],
+  "affects_link": false,
+  "description": "Full-colour Black/White battle sprites for every Gold/Silver/Crystal species, front and back, shiny included, drawn in the engine's own battle screen."
+}

@@ -103,3 +103,17 @@ do appear in Crystal's OPTIONS; RES 1/2 and SHADOWS LOW are the phone defaults a
 Boot Crystal. The first map takes a couple of seconds to mesh; neighbouring maps bake as you walk.
 If the world stays flat, see [TESTING.md](TESTING.md) — the mod writes a GPU report next to the save
 when its 3D pass cannot start.
+
+## 7. Battle sprites (optional)
+
+`./battle-art/build.sh` downloads absol89's Battle Art release zip into
+`work/`, slices one Black/White frame per Gold/Silver/Crystal species (front,
+back, shiny) and writes `dist/CRYSTAL_BATTLE_ART/` (+ zip). Needs Python 3
+with Pillow (`pip3 install pillow`). Pass `--battle-art DIR` to use a Battle
+Art mod folder you already have, `--set gen3` for the Emerald-style set.
+
+Install it like Terrarium: copy `dist/CRYSTAL_BATTLE_ART/` into `mods/` (iOS:
+`Documents/mods/`) and turn it on under **MODS** in Crystal, or add
+`CRYSTAL_BATTLE_ART = true` to `modsByVersion.crystal` in `options.lua`. It
+only replaces battle pictures; the summary, Pokédex and other screens keep
+Crystal's own art. Unown uses the A form for every letter.

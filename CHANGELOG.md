@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0 — 2026-09-18
+
+- Terrarium patch: Gold's "battle on the map" first pass is off (`OverworldBattle.enabled()` is false on Gen 2 and the 3D-BTL row is dropped). It hid the opponent's picture and never stood it in the 3D shot, so Crystal battles showed an empty arena until they ended. The engine's own battle screen draws both pictures again.
+- New `battle-art/`: the `CRYSTAL_BATTLE_ART` mod. One Black/White still frame per species (front, back, shiny) sliced from Battle Art's atlases by `build.sh`, served through the engine's `pokemon.sprite` hook in true colour, with per-picture `battle_sprite_scales` records. No sprite art is in this repository.
+- `screenshots/battle-crystal-bw.png`.
+
 ## 0.1.0 — 2026-09-17
 
 First public kit.

@@ -71,6 +71,22 @@ index 9b1d0f2..07803ba 100644
    -- Gold's NPCs carry Gen 1's seven-value pose() (the engine added it for
    -- gen2compat, src/world/gen2/Npc.lua), but its Player does not -- and
    -- the billboard pass poses every entity through the same call.  Mirror
+diff --git a/lib/OverworldBattle.lua b/lib/OverworldBattle.lua
+index 67ced51..4cc9aa1 100644
+--- a/lib/OverworldBattle.lua
++++ b/lib/OverworldBattle.lua
+@@ -81,6 +81,11 @@ OverworldBattle.setting = ModSetting.new(OverworldBattle.KEY,
+                                          { true, false }, { "ON", "OFF" })
+ 
+ function OverworldBattle.enabled()
++  -- Gold (v1) staging hides the foe's panel pic but never stands it in the
++  -- shot, so a Crystal battle shows an empty arena until it ends. Off on
++  -- Gen 2 until the enemy stand is ported; the engine's own screen draws
++  -- both pics.
++  if Gen2Bridge.isGen2() then return false end
+   return OverworldBattle.setting:get() and true or false
+ end
+ 
 diff --git a/lib/ShadowMap.lua b/lib/ShadowMap.lua
 index bb11610..3c6203d 100644
 --- a/lib/ShadowMap.lua
@@ -587,3 +603,19 @@ index 86e4720..2e799a1 100644
  end
  
  -- ============================================================================
+diff --git a/main.lua b/main.lua
+index 9b339ca..c31987b 100644
+--- a/main.lua
++++ b/main.lua
+@@ -1801,6 +1801,11 @@ mod.hooks:wrap("ui.options.rows", function(next, game, rows)
+   -- a row that no longer decides anything is worse than no row. Nothing is
+   -- lost by switching 3D-BTL off -- the row is back, WIDE and all, on the same
+   -- keypress.
++  -- Gold: staged battles are off (OverworldBattle.enabled), so the 3D-BTL
++  -- row would be a switch wired to nothing.
++  if V.require("Gen2Bridge").isGen2() then
++    dropRow(out, mod.id .. ":" .. OverworldBattle.KEY)
++  end
+   if stagedBattles() then
+     OverworldBattle.forceOG(game)
+     dropRow(out, "battleLayout")

@@ -56,3 +56,21 @@ Three things stood between "renders on the Mac" and "renders on the phone":
 `Game2` loads its options from the `gold` block of the file and `Pipelines.applyOptions` reads
 `gold.pipelines`. The top-level `pipelines` block is Gen 1's. The Gen 2 OPTIONS menu never builds the
 engine's pipeline rows, and phones have no hotkeys — so the preset is the only switch.
+
+## Battles on Crystal
+
+Terrarium's "battle on the map" has a Gold first pass (`OverworldBattle.installGen2`)
+that wraps the Gen 2 battle screen: it suppresses the opponent's panel picture
+and is meant to stand the opponent in a frozen 3D shot of the arena. On Gen 2
+the stand never appears, so a battle shows the player's Pokémon and the HUDs
+over an empty patch of ground until it ends. The patch makes
+`OverworldBattle.enabled()` return false on Gen 2 and drops the 3D-BTL options
+row there; the engine's own battle screen then draws both pictures.
+
+`CRYSTAL_BATTLE_ART` uses only public mod API: `pokemon.sprite` is raised for
+every battle picture with the side and species being resolved, the mod answers
+with its own PNG and sets `ctx.trueColor` so the GBC palette pass skips it, and
+a `battle_sprite_scales` record per picture (keyed by the resolved asset path)
+sizes it for the 7-tile enemy box and 6-tile player box. A replaced static
+picture whose Crystal animation sheet is not replaced is held still by the
+engine, which is what makes a one-frame-per-species mod enough.
