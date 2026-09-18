@@ -72,10 +72,18 @@ index 9b1d0f2..07803ba 100644
    -- gen2compat, src/world/gen2/Npc.lua), but its Player does not -- and
    -- the billboard pass poses every entity through the same call.  Mirror
 diff --git a/lib/OverworldBattle.lua b/lib/OverworldBattle.lua
-index 67ced51..4cc9aa1 100644
+index 67ced51..1f31491 100644
 --- a/lib/OverworldBattle.lua
 +++ b/lib/OverworldBattle.lua
-@@ -81,6 +81,11 @@ OverworldBattle.setting = ModSetting.new(OverworldBattle.KEY,
+@@ -58,6 +58,7 @@ local BattleScreenXY = V.require("BattleScreenXY")
+ local BattlePics = V.require("BattlePics")
+ local MonPack = V.require("MonPack")
+ local Voxel3D = V.require("Voxel3D")
++local Device = V.require("Device")
+ local ChunkMesher = V.require("ChunkMesher")
+ 
+ local OverworldBattle = {}
+@@ -81,6 +82,12 @@ OverworldBattle.setting = ModSetting.new(OverworldBattle.KEY,
                                           { true, false }, { "ON", "OFF" })
  
  function OverworldBattle.enabled()
@@ -83,10 +91,321 @@ index 67ced51..4cc9aa1 100644
 +  -- shot, so a Crystal battle shows an empty arena until it ends. Off on
 +  -- Gen 2 until the enemy stand is ported; the engine's own screen draws
 +  -- both pics.
-+  if Gen2Bridge.isGen2() then return false end
++  -- On Gold this switches the backdrop mode (see "Gold" below); the
++  -- staged arena is Gen 1 plumbing not yet ported.
    return OverworldBattle.setting:get() and true or false
  end
  
+@@ -137,10 +144,6 @@ OverworldBattle.BACK_MAX_PIC = 58
+ -- exactly this -- the back pic, in its slot.
+ function OverworldBattle.backPinned()
+   if not OverworldBattle.enabled() then return false end
+-  -- Gold (v1): always pinned.  The player's back pic stays in the engine's
+-  -- own panel and only the ENEMY stands on the arena -- the front-pic swap
+-  -- and the player-side card are Gen 1 plumbing not yet ported.
+-  if Gen2Bridge.isGen2() then return true end
+   return OverworldBattle.backSetting:get() and true or false
+ end
+ 
+@@ -396,16 +399,81 @@ end
+ -- a session started -- which is also the only case where anything visible
+ -- changes, so a map with no room for an arena plays exactly the vanilla
+ -- battle it always did, cast and all.
++-- ------- Gold: the battle over the last overworld frame
++--
++-- Gold's staging (both mons standing in a rendered arena, the HUDs snapped
++-- to it) is Gen 1 plumbing not yet ported: its first pass hid the foe's
++-- panel pic and never stood it in the shot. What Gold gets instead is the
++-- frame the player was looking at when the battle began -- the same place,
++-- the same light, softened and dimmed -- behind the engine's own battle
++-- screen, pics and panels untouched. main.lua notes the pipeline's canvas
++-- after every drawWorld; the battle copies it once, at its start.
++OverworldBattle.GOLD_SOFTEN = 3      -- downsample factor of the soft copy
++OverworldBattle.GOLD_DIM = 0.22      -- black over the backdrop, 0..1
++OverworldBattle.GOLD_STAGE = true    -- stage Gold battles like Gen 1; false = backdrop only
++
++local lastWorldFrame = nil
++function OverworldBattle.noteWorldFrame(canvas)
++  lastWorldFrame = canvas
++end
++
++-- A softened copy: the frame drawn small with linear filtering and back up.
++-- The pipeline reuses its canvas every frame, so the battle keeps its own.
++local function softCopy(src)
++  local G = love.graphics
++  local w, h = src:getDimensions()
++  local k = math.max(1, OverworldBattle.GOLD_SOFTEN)
++  local sw, sh = math.max(1, math.floor(w / k)), math.max(1, math.floor(h / k))
++  local small = G.newCanvas(sw, sh)
++  small:setFilter("linear", "linear")
++  local out = G.newCanvas(w, h)
++  out:setFilter("linear", "linear")
++  G.push("all")
++  G.origin()
++  G.setColor(1, 1, 1, 1)
++  G.setCanvas(small)
++  G.clear(0, 0, 0, 1)
++  G.draw(src, 0, 0, 0, sw / w, sh / h)
++  G.setCanvas(out)
++  G.clear(0, 0, 0, 1)
++  G.draw(small, 0, 0, 0, w / sw, h / sh)
++  G.pop()
++  small:release()
++  return out
++end
++
++local function beginGold(state, battle)
++  if not lastWorldFrame then return false end
++  local ok, backdrop = pcall(softCopy, lastWorldFrame)
++  if not (ok and backdrop) then
++    V.mod.log:warn("gold battle backdrop failed: %s -- this battle draws on "
++                   .. "the plain battle background", tostring(backdrop))
++    return false
++  end
++  session = { state = state, battle = battle, gold = true,
++              backdrop = backdrop, armed = false, token = 0 }
++  return true
++end
++
++function OverworldBattle.goldBackdrop()
++  return (session and session.gold) and session.backdrop or nil
++end
++
+ function OverworldBattle.begin(state, battle)
+   OverworldBattle.finish()
+   if not OverworldBattle.enabled() then return false end
++  if Gen2Bridge.isGen2() and not OverworldBattle.GOLD_STAGE then return beginGold(state, battle) end
+   if not (state and state.map and state.player) then return false end
+-  if not Voxel3D.available() then return false end
++  if not Voxel3D.available() then
++    return Gen2Bridge.isGen2() and beginGold(state, battle) or false
++  end
+ 
+   local ok, arena = pcall(BattleArena.find, state.map,
+                           state.player.cellX, state.player.cellY,
+                           state.player.surfing)
+-  if not (ok and arena) then return false end
++  if not (ok and arena) then
++    return Gen2Bridge.isGen2() and beginGold(state, battle) or false
++  end
+ 
+   -- the fight is staged from here on, so the layout it is composed for is not
+   -- optional any more (see forceOG)
+@@ -463,7 +531,8 @@ function OverworldBattle.finish()
+   pcall(BattleHitFX.clear)
+   pcall(function() V.require("BattleNav").observe(nil) end)
+   if not session then return end
+-  restoreCast()
++  if session.backdrop then pcall(session.backdrop.release, session.backdrop) end
++  if not session.gold then restoreCast() end
+   session = nil
+   Voxel3D.camera = nil
+ end
+@@ -496,6 +565,18 @@ function OverworldBattle.update(dt)
+     return
+   end
+ 
++  if session.gold then
++    session.battle = session.battle or (top ~= ow and top or nil)
++    return
++  end
++  -- Gold: battle.started hands over the battle MODEL; the textures are baked
++  -- from the battle SCREEN (it owns drawPic and the pic cache), which is the
++  -- state on top of the stack once the intro has pushed it.
++  if Gen2Bridge.isGen2() and top ~= nil and top ~= ow and top.drawPic
++     and session.battle ~= top then
++    session.battle = top
++  end
++
+   BattleCam.update(dt)
+   -- the battle only exists once it has been pushed; a session opened at
+   -- pushBattle time has it, one opened from battle.started was handed it
+@@ -560,6 +641,7 @@ function OverworldBattle.update(dt)
+   -- back to the GB's own pinned pic (see drawPicsLayer)
+   if shot then
+     shot.playerStaged = (textures and textures.player) and true or false
++    shot.enemyStaged = (textures and textures.enemy) and true or false
+   end
+   session.snapped = false
+   if shot and shot.canvas then
+@@ -811,15 +893,13 @@ local gen2InnerPic = nil     -- BS2.drawPic captured by installGen2
+ local gen2Texturing = false  -- lets the bake through the panel suppression
+ 
+ local function gen2SideTexture(screen, side)
+-  -- v1 stages the enemy only; the player's back pic stays in the panel
+-  if side ~= "enemy" then return nil end
+   if not gen2InnerPic then return nil end
+   local model = screen.battle
+-  local mon = model and model.enemy
++  local mon = model and model[side]
+   if not mon then return nil end
+-  -- the trainer's intro front pic belongs to the classic slot, and slides
+-  -- out there; only the MON stands on the field
+-  if screen.showEnemyTrainer then return nil end
++  local back = (side == "player")
++  if side == "enemy" and screen.showEnemyTrainer then return nil end
++  if back and screen.showPlayerBack then return nil end
+   local canvas = texCanvasFor(side)
+   if not canvas then return nil end
+   local g = love.graphics
+@@ -830,22 +910,33 @@ local function gen2SideTexture(screen, side)
+     g.clear(0, 0, 0, 0)
+     g.push()
+     g.origin()
++    -- the texture canvas is the pics layer at pack density (see texCanvasFor)
++    g.scale(MonPack.DENSITY or 1, MonPack.DENSITY or 1)
+     g.setColor(1, 1, 1, 1)
+-    gen2InnerPic(screen, mon, false)
++    gen2InnerPic(screen, mon, back)
+     g.pop()
+   end)
+   gen2Texturing = false
+   if prev then g.setCanvas(prev) else g.setCanvas() end
+   if not ok then error(err, 0) end
+   local BS2 = require("src.ui.gen2.BattleState")
+-  local ax = (BS2.ENEMY_PIC_TILE_X + BS2.ENEMY_PIC_TILES / 2) * 8
+-  local ay = (BS2.ENEMY_PIC_TILE_Y + BS2.ENEMY_PIC_TILES) * 8
++  local ax, ay
++  if back then
++    ax = (BS2.PLAYER_PIC_TILE_X + BS2.PLAYER_PIC_TILES / 2) * 8
++    ay = (BS2.PLAYER_PIC_TILE_Y + BS2.PLAYER_PIC_TILES) * 8
++    -- the hero cap wants the drawn pic height (see BACK_MAX_PIC)
++    local okP, image, _, path = pcall(screen.pic, screen, mon, true)
++    if okP and image then
++      local okS, scale = pcall(screen.picScale, screen, path, mon, true)
++      playerPicH = image:getHeight() * ((okS and tonumber(scale)) or 1)
++    end
++  else
++    ax = (BS2.ENEMY_PIC_TILE_X + BS2.ENEMY_PIC_TILES / 2) * 8
++    ay = (BS2.ENEMY_PIC_TILE_Y + BS2.ENEMY_PIC_TILES) * 8
++  end
+   return { canvas = canvas, ax = ax, ay = ay, trainer = false }
+ end
+ 
+--- Whether this side has anything to draw at all. Mirrors drawPicsLayer's own
+--- guards, so an empty canvas is never hung on a quad: a fainted, hidden or
+--- not-yet-sent-out mon simply has no billboard this frame.
+ local function sideVisible(battle, side)
+   if side == "enemy" then
+     if battle.showEnemyTrainer and battle.trainerPic then return true end
+@@ -985,18 +1076,20 @@ function OverworldBattle.installGen2()
+ 
+   gen2InnerPic = BS2.drawPic
+ 
+-  -- the enemy stands ON the arena, so its flat pic stays out of the panel;
+-  -- gen2Texturing lets the card bake itself through this same call
++  -- A side that stands in the shot is not drawn flat in the panel as well.
+   function BS2:drawPic(mon, back)
+-    if not back and not gen2Texturing and self.dramaticShapeShot
+-        and not self.showEnemyTrainer then
+-      return
++    local shot = self.dramaticShapeShot
++    if shot and not gen2Texturing then
++      if back and shot.playerStaged then return end
++      if not back and shot.enemyStaged and not self.showEnemyTrainer then
++        return
++      end
+     end
+     return gen2InnerPic(self, mon, back)
+   end
+ 
+-  -- Chrome.clear IS the battle's background fill; while the diorama is
+-  -- under the panel it only keeps the ink-color contract
++  -- The battle screen clears to its white panel before it draws; with a
++  -- shot or backdrop up, that clear is skipped and the world shows through.
+   local suppressClear = false
+   local innerClear = Chrome.clear
+   function Chrome.clear()
+@@ -1007,15 +1100,86 @@ function OverworldBattle.installGen2()
+     return innerClear()
+   end
+ 
++  -- HUD lettering over the world: the HUDs' text is printed straight onto
++  -- the shot with a dark outline and no paper behind it (Yellow's look),
++  -- instead of the white plates the panel screen never shows.
++  local okF, Font = pcall(require, "src.render.Font")
++  local hudLettering = false
++  local INK_OUT = { { 255, 255, 255 }, { 255, 255, 255 }, { 255, 255, 255 }, { 16, 24, 16 } }
++  local INK_LIGHT = { { 255, 255, 255 }, { 255, 255, 255 }, { 255, 255, 255 }, { 224, 248, 208 } }
++  local OFFS = { { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 }, { -1, -1 }, { 1, -1 }, { -1, 1 }, { 1, 1 } }
++  local innerPrint = Chrome.printThrough
++  function Chrome.printThrough(text, tx, ty, palette, invert, raw)
++    if not (hudLettering and okF and Font and OverworldBattle.shot()) then
++      return innerPrint(text, tx, ty, palette, invert, raw)
++    end
++    local codes = Font.encode(text)
++    local function pass(pal, dx, dy)
++      local p, drawGlyph, finish = Chrome.paletteGlyphs(pal, invert, true)
++      if not p then return false end
++      local pen = tx * 8 + dx
++      for _, code in ipairs(codes) do
++        drawGlyph(code, pen, ty * 8 + dy)
++        pen = pen + Font.advanceOf(code)
++      end
++      finish()
++      return true
++    end
++    if not pass(INK_OUT, OFFS[1][1], OFFS[1][2]) then
++      return innerPrint(text, tx, ty, palette, invert, raw)
++    end
++    for i = 2, #OFFS do pass(INK_OUT, OFFS[i][1], OFFS[i][2]) end
++    pass(INK_LIGHT, 0, 0)
++    return Font.width(text)
++  end
++  for _, name in ipairs({ "drawEnemyHud", "drawPlayerHud" }) do
++    local inner = BS2[name]
++    if inner then
++      BS2[name] = function(self, ...)
++        hudLettering = true
++        local ok, err = pcall(inner, self, ...)
++        hudLettering = false
++        if not ok then error(err, 0) end
++      end
++    end
++  end
++
++  -- The slide-in intro and move animations present the panel through
++  -- BattleAnimView, which paints white paper first; over a shot that paper
++  -- would hide the world, so it is skipped while one is up.
++  local okA, AnimView = pcall(require, "src.ui.gen2.BattleAnimView")
++  if okA and AnimView and AnimView.fillBackground and not AnimView.terrariumGoldHook then
++    AnimView.terrariumGoldHook = true
++    local innerFill = AnimView.fillBackground
++    function AnimView:fillBackground(...)
++      if OverworldBattle.shot() then return end
++      return innerFill(self, ...)
++    end
++  end
++
+   local innerWide = BS2.drawWidescreen
+   function BS2:drawWidescreen(winW, winH)
+     local shot = OverworldBattle.shot()
++    local canvas = shot and shot.canvas or OverworldBattle.goldBackdrop()
+     self.dramaticShapeShot = shot
+-    if not shot then return innerWide(self, winW, winH) end
++    if not canvas then return innerWide(self, winW, winH) end
+     local G = love.graphics
++    local cw, ch = canvas:getDimensions()
++    local ww, wh = winW or cw, winH or ch
++    local sx, sy = ww / cw, wh / ch
++    G.setColor(1, 1, 1, 1)
++    -- Canvases rendered by the voxel projection are stored upside down on
++    -- Metal (the engine's own world composite flips them the same way).
++    if Device.metal() then
++      G.draw(canvas, 0, wh, 0, sx, -sy)
++    else
++      G.draw(canvas, 0, 0, 0, sx, sy)
++    end
++    if not shot and OverworldBattle.GOLD_DIM > 0 then
++      G.setColor(0, 0, 0, OverworldBattle.GOLD_DIM)
++      G.rectangle("fill", 0, 0, ww, wh)
++    end
+     G.setColor(1, 1, 1, 1)
+-    local cw, ch = shot.canvas:getDimensions()
+-    G.draw(shot.canvas, 0, 0, 0, (winW or cw) / cw, (winH or ch) / ch)
+     local scale = Chrome.fitScale(winW, winH)
+     local ox, oy = Chrome.fitOrigin(winW, winH, scale)
+     G.push()
 diff --git a/lib/ShadowMap.lua b/lib/ShadowMap.lua
 index bb11610..3c6203d 100644
 --- a/lib/ShadowMap.lua
@@ -604,18 +923,14 @@ index 86e4720..2e799a1 100644
  
  -- ============================================================================
 diff --git a/main.lua b/main.lua
-index 9b339ca..c31987b 100644
+index 9b339ca..0eceef2 100644
 --- a/main.lua
 +++ b/main.lua
-@@ -1801,6 +1801,11 @@ mod.hooks:wrap("ui.options.rows", function(next, game, rows)
-   -- a row that no longer decides anything is worse than no row. Nothing is
-   -- lost by switching 3D-BTL off -- the row is back, WIDE and all, on the same
-   -- keypress.
-+  -- Gold: staged battles are off (OverworldBattle.enabled), so the 3D-BTL
-+  -- row would be a switch wired to nothing.
-+  if V.require("Gen2Bridge").isGen2() then
-+    dropRow(out, mod.id .. ":" .. OverworldBattle.KEY)
-+  end
-   if stagedBattles() then
-     OverworldBattle.forceOG(game)
-     dropRow(out, "battleLayout")
+@@ -543,6 +543,7 @@ mod.content.render_pipelines:register(PIPE_VOXEL, {
+     local canvas = VoxelScene.render(ctx.state, sw, sh,
+                                      ctx.vw, ctx.vh, ctx.paletteFor)
+     if not canvas then return nil end   -- fall back to the 2D path
++    OverworldBattle.noteWorldFrame(canvas)
+     if Voxel3D.beginOverlay() then
+       ctx.drawFx(function(wx, wy) return Voxel3D.project(wx, 0, wy) end,
+                  ctx.scale)

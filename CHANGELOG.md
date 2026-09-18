@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0 — 2026-09-18
+
+- Terrarium patch: battles on the map work on Gold. The Gen 1 staging is driven from the Gen 2 battle *screen* (the event payload hands over the model), the billboard bake scales by pack density, the player's back sprite stands in the foreground like Kanto's, staged sides are no longer drawn flat in the panel, the intro slide's white paper is skipped over a shot, and the HUD is lettered onto the world with an outline instead of white plates. When no arena fits, a softened snapshot of the last overworld frame backs the plain screen. The 3D-BTL and BACK SPRITES rows work on Gold.
+- Screenshots: `battle-crystal-staged.png`, `battle-crystal-staged-intro.png`, `battle-crystal-staged-ios-simulator.png`.
+
 ## 0.2.0 — 2026-09-18
 
 - Terrarium patch: Gold's "battle on the map" first pass is off (`OverworldBattle.enabled()` is false on Gen 2 and the 3D-BTL row is dropped). It hid the opponent's picture and never stood it in the 3D shot, so Crystal battles showed an empty arena until they ended. The engine's own battle screen draws both pictures again.

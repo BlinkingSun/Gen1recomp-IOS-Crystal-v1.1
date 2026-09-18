@@ -43,17 +43,21 @@ engine rebuilds everything from it on your device and verifies the SHA-1.
 - Terrarium's shadows, tilt-shift, day/night and camera ladder as on Kanto.
 - Correct rendering on iOS (Metal): upright, centred on the player, in either
   orientation.
-- Battles that work: Terrarium's unfinished Gold "battle on the map" is
-  switched off, so the opponent is visible again from the first frame.
+- **Battles on the map**, as Terrarium does them on Kanto: both Pokémon
+  stand in a rendered shot of the place you were walking through, under the
+  same light and with their shadows, the HUD lettered straight onto the
+  world with a dark outline, the engine's own text box below. Falls back to
+  a softened snapshot of the map behind the plain battle screen when no
+  arena fits, and to the plain screen when the 3D-BTL row is off.
 - Optional **Black/White battle sprites** for all 251 species (front, back
-  and shiny) in the engine's own battle screen, built by `battle-art/build.sh`
-  the way absol89's Battle Art builds its collections.
+  and shiny), built by `battle-art/build.sh` the way absol89's Battle Art
+  builds its collections.
 
-![Crystal battle with Black/White sprites](screenshots/battle-crystal-bw.png)
+![Crystal battle on the map](screenshots/battle-crystal-staged.png)
 
-Not (yet) ported: Terrarium's on-map battles, wild roamers, weather, ecology
-and the rest of its Kanto-specific features are **untested on Gen 2**; battles
-use the engine's own 2D screen. The optional RTX pass is untested on Metal.
+Not (yet) ported: Terrarium's wild roamers, weather, ecology and the rest of
+its Kanto-specific features are **untested on Gen 2**. Trainer sprites stay
+Crystal's own two-tone art. The optional RTX pass is untested on Metal.
 
 ## What is in this repository
 

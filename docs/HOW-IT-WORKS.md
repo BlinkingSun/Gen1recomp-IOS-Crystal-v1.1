@@ -59,13 +59,26 @@ engine's pipeline rows, and phones have no hotkeys — so the preset is the only
 
 ## Battles on Crystal
 
-Terrarium's "battle on the map" has a Gold first pass (`OverworldBattle.installGen2`)
-that wraps the Gen 2 battle screen: it suppresses the opponent's panel picture
-and is meant to stand the opponent in a frozen 3D shot of the arena. On Gen 2
-the stand never appears, so a battle shows the player's Pokémon and the HUDs
-over an empty patch of ground until it ends. The patch makes
-`OverworldBattle.enabled()` return false on Gen 2 and drops the 3D-BTL options
-row there; the engine's own battle screen then draws both pictures.
+Terrarium's "battle on the map" had a Gold first pass that never showed the
+opponent. Four things were missing, all in `lib/OverworldBattle.lua`:
+
+- The mod kept the battle *model* handed over by `battle.started` as its
+  battle; on Gen 2 the pictures are baked from the battle *screen* (it owns
+  `drawPic` and the pic cache), which is the state on top of the stack once
+  the intro has pushed it. The update loop now swaps it in.
+- The billboard bake drew the panel's pics layer at 1x into a canvas sized
+  for the pack density, so the picture sat in one corner of the card.
+- Only the enemy was baked. The player's back sprite is baked from its own
+  box and stands in the foreground grown by the hero factor, as on Kanto.
+- The panel kept drawing the flat copies. Staged sides are skipped there,
+  the intro slide's white paper (`BattleAnimView:fillBackground`) is skipped
+  while a shot is up, and the HUD text is printed through the glyph
+  renderer eight times in dark ink and once in light ink with no paper.
+
+The shot canvas comes from the voxel projection, so on Metal it is drawn
+flipped, the same rule the engine's own world composite uses. When no arena
+fits (caves, tight interiors) the battle draws over a softened copy of the
+last overworld frame instead; with the 3D-BTL row off it is the plain screen.
 
 `CRYSTAL_BATTLE_ART` uses only public mod API: `pokemon.sprite` is raised for
 every battle picture with the side and species being resolved, the mod answers
