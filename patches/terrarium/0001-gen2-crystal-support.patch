@@ -72,7 +72,7 @@ index 9b1d0f2..07803ba 100644
    -- gen2compat, src/world/gen2/Npc.lua), but its Player does not -- and
    -- the billboard pass poses every entity through the same call.  Mirror
 diff --git a/lib/OverworldBattle.lua b/lib/OverworldBattle.lua
-index 67ced51..b26b849 100644
+index 67ced51..82461f8 100644
 --- a/lib/OverworldBattle.lua
 +++ b/lib/OverworldBattle.lua
 @@ -58,6 +58,7 @@ local BattleScreenXY = V.require("BattleScreenXY")
@@ -228,7 +228,7 @@ index 67ced51..b26b849 100644
    end
    session.snapped = false
    if shot and shot.canvas then
-@@ -810,42 +892,98 @@ end
+@@ -810,42 +892,100 @@ end
  local gen2InnerPic = nil     -- BS2.drawPic captured by installGen2
  local gen2Texturing = false  -- lets the bake through the panel suppression
  
@@ -331,7 +331,9 @@ index 67ced51..b26b849 100644
 +    ax = (BS2.ENEMY_PIC_TILE_X + BS2.ENEMY_PIC_TILES / 2) * 8
 +    ay = (BS2.ENEMY_PIC_TILE_Y + BS2.ENEMY_PIC_TILES) * 8
 +  end
-+  if trainer then canvas = keyWhite(canvas, side) end
++  -- true-colour trainer art carries its own transparency; only the 2bpp
++  -- pics need their paper keyed out
++  if trainer and not screen.enemyTrainerTrueColor then canvas = keyWhite(canvas, side) end
 +  return { canvas = canvas, ax = ax, ay = ay, trainer = trainer }
  end
  
@@ -341,7 +343,7 @@ index 67ced51..b26b849 100644
  local function sideVisible(battle, side)
    if side == "enemy" then
      if battle.showEnemyTrainer and battle.trainerPic then return true end
-@@ -985,18 +1123,18 @@ function OverworldBattle.installGen2()
+@@ -985,18 +1125,18 @@ function OverworldBattle.installGen2()
  
    gen2InnerPic = BS2.drawPic
  
@@ -367,7 +369,7 @@ index 67ced51..b26b849 100644
    local suppressClear = false
    local innerClear = Chrome.clear
    function Chrome.clear()
-@@ -1007,22 +1145,103 @@ function OverworldBattle.installGen2()
+@@ -1007,22 +1147,103 @@ function OverworldBattle.installGen2()
      return innerClear()
    end
  

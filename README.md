@@ -52,13 +52,16 @@ engine rebuilds everything from it on your device and verifies the SHA-1.
 - Optional **Black/White battle sprites** for all 251 species (front, back
   and shiny), built by `battle-art/build.sh` the way absol89's Battle Art
   builds its collections.
+- Optional **full-colour trainer sprites** for every Gold/Silver/Crystal
+  trainer class and the player's back view (`trainer-art/`): the mod and the
+  generator are here, the images are AI-generated on your side from the
+  outfit descriptions in its charter.
 
 ![Crystal battle on the map](screenshots/battle-crystal-staged.png)
-![Trainer battle intro on the map](screenshots/battle-crystal-staged-trainer.png)
+![Trainer battle intro on the map, with trainer art](screenshots/battle-crystal-trainer-art.png)
 
 Not (yet) ported: Terrarium's wild roamers, weather, ecology and the rest of
-its Kanto-specific features are **untested on Gen 2**. Trainer sprites stay
-Crystal's own two-tone art. The optional RTX pass is untested on Metal.
+its Kanto-specific features are **untested on Gen 2**. The optional RTX pass is untested on Metal.
 
 ## What is in this repository
 
@@ -68,6 +71,7 @@ patches/engine/                two patches for gen1recomp v0.2.60 (iOS builds)
 patches/terrarium/             one patch for Terrarium ffecfa14 (its own files)
 overlay/terrarium/             NEW files added to Terrarium (the Gen 2 classifier, probes, tools)
 battle-art/                    the CRYSTAL_BATTLE_ART sprite mod: build script, mod code, species list
+trainer-art/                   the CRYSTAL_TRAINER_ART mod: generator charter + scripts, mod code (no images)
 docs/INSTALL.md                step by step, iOS and desktop
 docs/HOW-IT-WORKS.md           what was wrong and what each change does
 docs/TESTING.md                the headless probes and the Simulator workflow

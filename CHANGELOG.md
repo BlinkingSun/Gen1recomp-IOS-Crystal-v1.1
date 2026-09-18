@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0 — 2026-09-18
+
+- New `trainer-art/`: the `CRYSTAL_TRAINER_ART` mod (full-colour trainer sprites for all 67 Gen 2 trainer classes plus the Gold and Kris back views) with the generation charter and scripts; wraps `BattleState.trainerArt` (`engine_internals`) and the `player.sprite` hook, scales via `battle_sprite_scales`. No images are committed.
+- Terrarium patch: trainer cards are keyed only for the two-tone pics; true-colour trainer art keeps its own transparency.
+
 ## 0.3.1 — 2026-09-18
 
 - Terrarium patch: enemy trainers stand in the arena too (their paper keyed out of the card), the shot waits until the battle screen is on top so the engine's wipe is untouched, and the intro-paper skip and outlined lettering apply only while drawing over a shot.

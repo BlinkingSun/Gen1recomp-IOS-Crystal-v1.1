@@ -1,0 +1,19 @@
+{
+  "id": "CRYSTAL_TRAINER_ART",
+  "name": "Crystal Trainer Art",
+  "version": "0.1.0",
+  "api": 2,
+  "gen2compat": true,
+  "games": ["gen2"],
+  "entry": "main.lua",
+  "profile": "content",
+  "category": "GRAPHICS",
+  "game_version": ">=0.2.60 <2.0.0",
+  "priority": 60,
+  "dependencies": [],
+  "optional_dependencies": [],
+  "conflicts": [],
+  "permissions": ["engine_internals"],
+  "affects_link": false,
+  "description": "Full-colour trainer sprites for Gold/Silver/Crystal: every trainer class, plus the player's back view, drawn in true colour in battle."
+}
