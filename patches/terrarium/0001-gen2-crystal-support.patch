@@ -72,7 +72,7 @@ index 9b1d0f2..07803ba 100644
    -- gen2compat, src/world/gen2/Npc.lua), but its Player does not -- and
    -- the billboard pass poses every entity through the same call.  Mirror
 diff --git a/lib/OverworldBattle.lua b/lib/OverworldBattle.lua
-index 67ced51..82461f8 100644
+index 67ced51..7b65d8a 100644
 --- a/lib/OverworldBattle.lua
 +++ b/lib/OverworldBattle.lua
 @@ -58,6 +58,7 @@ local BattleScreenXY = V.require("BattleScreenXY")
@@ -369,7 +369,7 @@ index 67ced51..82461f8 100644
    local suppressClear = false
    local innerClear = Chrome.clear
    function Chrome.clear()
-@@ -1007,22 +1147,103 @@ function OverworldBattle.installGen2()
+@@ -1007,25 +1147,116 @@ function OverworldBattle.installGen2()
      return innerClear()
    end
  
@@ -476,6 +476,19 @@ index 67ced51..82461f8 100644
      suppressClear = false
      G.pop()
      if not ok then error(err, 0) end
++    -- The cart fades the battle to white on the way out (and holds there on
++    -- a whiteout); the panel's palette does that on its own, the world
++    -- behind it gets the same fade here.
++    if self.phase == "fadeout" and self.exitFadeLength then
++      local total = math.max(1, self:exitFadeLength())
++      local a = math.min(1, ((self.fadeTick or 0) + 1) / total)
++      G.setColor(1, 1, 1, a)
++      G.rectangle("fill", 0, 0, ww, wh)
++      G.setColor(1, 1, 1, 1)
++    end
+   end
+ end
+ 
 diff --git a/lib/ShadowMap.lua b/lib/ShadowMap.lua
 index bb11610..3c6203d 100644
 --- a/lib/ShadowMap.lua
@@ -993,7 +1006,7 @@ index 86e4720..2e799a1 100644
  
  -- ============================================================================
 diff --git a/main.lua b/main.lua
-index 9b339ca..0eceef2 100644
+index 9b339ca..75497aa 100644
 --- a/main.lua
 +++ b/main.lua
 @@ -543,6 +543,7 @@ mod.content.render_pipelines:register(PIPE_VOXEL, {
@@ -1004,3 +1017,17 @@ index 9b339ca..0eceef2 100644
      if Voxel3D.beginOverlay() then
        ctx.drawFx(function(wx, wy) return Voxel3D.project(wx, 0, wy) end,
                   ctx.scale)
+@@ -2277,7 +2278,12 @@ end)
+ 
+ -- Every ending path emits this, including a battle skipped before it drew,
+ -- so this is where the map's cast comes back.
+-mod.events:on("battle.ended", function()
++mod.events:on("battle.ended", function(payload)
++  -- Gold emits this twice: from the battle MODEL the moment the outcome is
++  -- decided (the screen still has the faint, the EXP and the fade to play)
++  -- and from the battle SCREEN when it is done. Only the screen's counts.
++  local b = payload and payload.battle
++  if V.require("Gen2Bridge").isGen2() and b and not b.drawPic then return end
+   OverworldBattle.finish()
+ end)
+ 

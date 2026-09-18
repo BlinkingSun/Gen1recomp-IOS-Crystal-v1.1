@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1 — 2026-09-18
+
+- Terrarium patch: the scene stays up through a battle's ending. Gold emits `battle.ended` twice, from the battle model the moment the outcome is decided and from the screen when the faint, experience and fade are done; only the screen's now ends the staging. The world fades to white under the panel's own exit fade (and holds on a whiteout), as the original does.
+
 ## 0.4.0 — 2026-09-18
 
 - New `trainer-art/`: the `CRYSTAL_TRAINER_ART` mod (full-colour trainer sprites for all 67 Gen 2 trainer classes plus the Gold and Kris back views) with the generation charter and scripts; wraps `BattleState.trainerArt` (`engine_internals`) and the `player.sprite` hook, scales via `battle_sprite_scales`. No images are committed.
