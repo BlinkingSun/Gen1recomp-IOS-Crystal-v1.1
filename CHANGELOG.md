@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.4 — 2026-09-24
+
+- Terrarium patch: battle arenas are chosen by what the camera can actually see. The old line-of-sight check read the height a character stands at, which is one cell for every wall, hedge and tree, while Gold's models stand two to four cells tall, so a fight could be shot from inside a building or with a hedge hiding the player's mon. `BattleScene.sight` now renders a small frame from each candidate camera (terrain plus flat markers on the foe's row and the player's cell) and `BattleArena.sighted` takes the nearest spot where at least 90% of the view and of the player's mon are visible, trying the long lens and then the short one; if none qualifies the best one tested is used. Costs about 30-60 ms on a Mac, once per battle, during the transition.
+- Terrarium patch: when a move knocks out the foe, its picture no longer switches to the next Pokemon before the hit lands. The 3D card is baked from the mon the battle screen is showing (`activeMon`, as the engine's own HUD does), not from the battle model, which moves on as soon as the faint is decided.
+- Terrarium patch: Crystal's START menu draws under Terrarium again (the X/Y start-menu wrap blanked the Gen 2 menu's draw).
+- Known: in cramped places (caves, narrow routes) no spot may reach the 90% bar; the best available is used, so some scenery can still cover part of the frame.
+
 ## 0.4.3 — 2026-09-18
 
 - Terrarium patch: fixes a crash in Crystal's catch tutorial (`Battle.lua:1099: attempt to index local 'mon'`). Terrarium's Kanto battle navigation rerouted direction presses to its own menu layout, so the tutorial's scripted DOWN landed on RUN instead of PACK, and an empty party cannot run. The navigation, XY bag screen, ribbon and pack are now inert on Gold.

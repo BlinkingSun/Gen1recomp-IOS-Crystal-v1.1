@@ -1,3 +1,125 @@
+diff --git a/lib/BattleArena.lua b/lib/BattleArena.lua
+index 20f0e04..4d82459 100644
+--- a/lib/BattleArena.lua
++++ b/lib/BattleArena.lua
+@@ -264,7 +264,7 @@ end
+ -- Both shapes are searched over the whole map before the next one is tried:
+ -- a wide arena on the far side of a route still beats a narrow one
+ -- underfoot, because the wide one is the shot this mode is framed for.
+-function BattleArena.find(map, fromX, fromY, surfing)
++function BattleArena.find(map, fromX, fromY, surfing, state)
+   if not (map and map.widthCells) then return nil end
+ 
+   -- the authored spot wins outright when the map has one and it still holds
+@@ -310,6 +310,20 @@ function BattleArena.find(map, fromX, fromY, surfing)
+     end
+   end
+ 
++  -- with the live overworld in hand the renderer is asked which spot can
++  -- actually be seen (see BattleArena.sighted); without it, or when the
++  -- renderer cannot answer, the height walk below decides as it always did
++  if state and state.map == map then
++    local ok, seen = pcall(BattleArena.sighted, state, fromX, fromY, surfing)
++    if ok and seen then
++      seen.map = map
++      return seen
++    end
++    if not ok then
++      V.mod.log:warn("battle arena sight test failed: %s", tostring(seen))
++    end
++  end
++
+   local found = BattleArena.search(map, fromX, fromY, surfing)
+   if found then found.map = map end
+   return found
+@@ -357,4 +371,87 @@ function BattleArena.search(map, fromX, fromY, surfing, wantClear)
+   return nil
+ end
+ 
++-- ------- asked of the renderer
++--
++-- `clearance` walks groundAt, the height a character stands at, which is one
++-- cell for every wall, hedge and tree; the models drawn there are as tall as
++-- their artwork. On Gold that let the camera park inside a building (the
++-- whole frame one wall) or behind a hedge that hid the player's mon, with the
++-- walk reporting a clear line both times. BattleScene.sight draws a small
++-- frame from the candidate's own camera and measures what survives, so this
++-- takes the nearest spot the fight can really be seen from.
++--
++-- Candidates are the wide shapes nearest the player; each is tried with the
++-- long lens and then the short one (the short one stands closer, over less
++-- foreground). The first that shows at least SIGHT_PANEL of the view and
++-- SIGHT_BOX of the player's mon wins. If none does, the best one tested
++-- does -- a partly blocked fight beats the camera inside a wall.
++BattleArena.SIGHT_PANEL = 0.9
++BattleArena.SIGHT_BOX = 0.9
++BattleArena.SIGHT_TRIES = 14      -- candidates rendered per battle, at most
++BattleArena.SIGHT_RIGS = { false, "wide" }   -- false = the default lens
++
++function BattleArena.sighted(state, fromX, fromY, surfing)
++  local BattleScene = V.require("BattleScene")
++  local t0 = love.timer.getTime()
++  local map = state.map
++  local grid, gw, gh = openGrid(map, surfing)
++  local best, bestScore = nil, -1
++  local tested = 0
++  for _, shape in ipairs(BattleArena.SHAPES) do
++    local cands = {}
++    for y = 0, gh - shape.h do
++      for x = 0, gw - shape.w do
++        if fits(grid, gw, x, y, shape.w, shape.h) then
++          local mx = x + (shape.w - 1) / 2
++          local my = y + (shape.h - 1) / 2
++          local dx, dy = mx - fromX, my - fromY
++          cands[#cands + 1] = { x = x, y = y, d = dx * dx + dy * dy }
++        end
++      end
++    end
++    table.sort(cands, function(a, b)
++      if a.d ~= b.d then return a.d < b.d end
++      if a.y ~= b.y then return a.y < b.y end
++      return a.x < b.x
++    end)
++    -- neighbours one cell apart look through nearly the same foreground:
++    -- skip a candidate right next to one already rendered
++    local seen = {}
++    for _, c in ipairs(cands) do
++      if tested >= BattleArena.SIGHT_TRIES then break end
++      local near = false
++      for _, s in ipairs(seen) do
++        if math.abs(s.x - c.x) <= 1 and math.abs(s.y - c.y) <= 1 then
++          near = true
++          break
++        end
++      end
++      if not near then
++        seen[#seen + 1] = c
++        tested = tested + 1
++        for _, rig in ipairs(BattleArena.SIGHT_RIGS) do
++          local arena = place(shape, c.x, c.y)
++          arena.map = map
++          arena.cam = rig or nil
++          local r = BattleScene.sight(state, arena)
++          -- the renderer cannot answer (terrain still building, no readback):
++          -- hand the decision back to the height walk
++          if not r then return nil end
++          arena.sight = r
++          r.tested, r.ms = tested, (love.timer.getTime() - t0) * 1000
++          if r.panel >= BattleArena.SIGHT_PANEL
++             and r.box >= BattleArena.SIGHT_BOX then
++            return arena
++          end
++          local score = math.min(r.panel, r.box)
++          if score > bestScore then best, bestScore = arena, score end
++        end
++      end
++    end
++    if tested >= BattleArena.SIGHT_TRIES then break end
++  end
++  return best
++end
++
+ return BattleArena
 diff --git a/lib/BattleNav.lua b/lib/BattleNav.lua
 index 139610f..38ba3b1 100644
 --- a/lib/BattleNav.lua
@@ -13,6 +135,214 @@ index 139610f..38ba3b1 100644
    local party = partyLive()
    if party then return "party", party end
    if not S.live then return nil end
+diff --git a/lib/BattleScene.lua b/lib/BattleScene.lua
+index 123722f..9858895 100644
+--- a/lib/BattleScene.lua
++++ b/lib/BattleScene.lua
+@@ -624,4 +624,203 @@ function BattleScene.render(state, arena, textures, token)
+   return out
+ end
+ 
++-- ------- can the fight be SEEN from here
++--
++-- BattleArena's line-of-sight walk reads groundAt, which is the height a
++-- character STANDS at -- one cell for every wall, hedge and tree. The models
++-- drawn on those cells stand as tall as their artwork (a Gold building or a
++-- National Park hedge is two to four cells high), so an arena could pass the
++-- walk and still be shot through a wall: the camera parked inside a building
++-- (the whole frame one grey face), or a hedge filling the lower half with the
++-- player's mon behind it.
++--
++-- So the candidate is asked of the renderer itself. A small frame is drawn
++-- from the arena's own camera with the real terrain, and two flat markers
++-- stand in the shot: a wide panel on the foe's row (everything above the
++-- foe's feet that the viewer should see) and a box where the player's mon
++-- stands. The same frame drawn with no terrain says how many marker pixels
++-- there should be; the ratio is how much of the fight survives the
++-- foreground. Nothing here touches the battle's own canvases (own slot) and
++-- nothing is kept.
++BattleScene.SIGHT_W = 96
++BattleScene.SIGHT_H = 54
++local PANEL = { 1, 0, 1 }       -- magenta: the foe's row
++local BOX = { 0, 1, 1 }         -- cyan: the player's mon
++local whiteTex = nil
++local sightBase = {}
++
++local function quad(x0, y0, z0, x1, y1, z1, alongZ)
++  -- one vertical quad; `alongZ` spans z instead of x
++  local a, b, c, d
++  if alongZ then
++    a, b = { x0, y0, z0 }, { x0, y0, z1 }
++    c, d = { x0, y1, z1 }, { x0, y1, z0 }
++  else
++    a, b = { x0, y0, z0 }, { x1, y0, z0 }
++    c, d = { x1, y1, z0 }, { x0, y1, z0 }
++  end
++  local v = {}
++  for _, p in ipairs({ a, b, c, a, c, d }) do
++    v[#v + 1] = { p[1], p[2], p[3], 0.5, 0.5, 1 }
++  end
++  return v
++end
++
++local function append(dst, src) for _, v in ipairs(src) do dst[#dst + 1] = v end end
++
++local function markers(arena, groundY)
++  local C = BattleScene.CELL
++  local ex, ez = arena.enemy[1], arena.enemy[2]
++  local px, pz = arena.player[1], arena.player[2]
++  -- the panel: far wider and taller than any frame, so it fills the view
++  -- above the foe's feet; it stands half a cell behind the foe so the foe's
++  -- own cell is in front of it
++  local panel = quad(ex - 40 * C, groundY, ez - C / 2,
++                     ex + 40 * C, groundY + 40 * C, ez - C / 2)
++  -- the box: a mon-sized block on the player's cell (four faces, so it
++  -- reads from any rig)
++  local h, r = groundY + 1.25 * C, C * 0.45
++  local box = {}
++  append(box, quad(px - r, groundY, pz + r, px + r, h, pz + r))
++  append(box, quad(px - r, groundY, pz - r, px + r, h, pz - r))
++  append(box, quad(px - r, groundY, pz - r, px - r, h, pz + r, true))
++  append(box, quad(px + r, groundY, pz - r, px + r, h, pz + r, true))
++  return Voxel3D.newMesh(panel), Voxel3D.newMesh(box)
++end
++
++local function readback(c)
++  local g = love.graphics
++  if g.readbackTexture then
++    local ok, d = pcall(g.readbackTexture, c)
++    if ok and d then return d end
++  end
++  local ok, d = pcall(c.newImageData, c)
++  return ok and d or nil
++end
++
++-- Pixels of each marker colour in `data`.
++local function count(data)
++  local w, h = data:getDimensions()
++  local nP, nB = 0, 0
++  for y = 0, h - 1 do
++    for x = 0, w - 1 do
++      local r, g, b = data:getPixel(x, y)
++      if r > 0.8 and g < 0.25 and b > 0.8 then nP = nP + 1
++      elseif r < 0.25 and g > 0.8 and b > 0.8 then nB = nB + 1 end
++    end
++  end
++  return nP, nB
++end
++
++-- One frame from `arena`'s camera, with or without the terrain. Returns the
++-- marker pixel counts, or nil when the renderer could not draw it.
++local function sightPass(state, host, neighbors, arena, groundY, withWorld,
++                         panelMesh, boxMesh)
++  local terrain, nbMesh = prefetchArena(state, host)
++  if withWorld and not terrain then return nil end
++  local w, h = BattleScene.SIGHT_W, BattleScene.SIGHT_H
++  local cam = BattleCam.rig(arena, groundY)
++  local cx, cy = arena.mid[1], arena.mid[2]
++  local vh = BattleCam.rigFor(arena).frameH
++  local vw = vh * w / h
++  Voxel3D.camera = cam
++  local canvas
++  local ok, err = pcall(function()
++    if not Voxel3D.beginScene(w, h, cx, cy, vw, vh, { 0, 0, 0, 1 },
++                              "battle-sight") then return end
++    if withWorld then
++      local palette = paletteFor(state, host)
++      local function atlasFor(map)
++        return TerrainAtlas.forMap(map, VoxelScene._modeColors(palette, map))
++      end
++      Voxel3D.drawGroup(terrain, atlasFor(host), nil, nil, nil, nil)
++      for i, nb in ipairs(neighbors) do
++        if nbMesh and nbMesh[i] then
++          Voxel3D.drawGroup(nbMesh[i], atlasFor(nb.map),
++                            Mat4.translate(nb.ox, 0, nb.oy), nil, nil, nil)
++        end
++      end
++    end
++    Voxel3D.seams(false)
++    Voxel3D.glass(false)
++    Voxel3D.flatten(PANEL, 1)
++    Voxel3D.draw(panelMesh, whiteTex, nil, 0, nil, nil)
++    Voxel3D.flatten(BOX, 1)
++    Voxel3D.draw(boxMesh, whiteTex, nil, 0, nil, nil)
++    Voxel3D.flatten(nil)
++    Voxel3D.glass(true)
++    Voxel3D.seams(true)
++    canvas = Voxel3D.endScene()
++  end)
++  Voxel3D.camera = nil
++  if not ok then
++    -- close the scene the error left open, or the next beginScene is refused
++    pcall(Voxel3D.endScene)
++    error(err, 0)
++  end
++  if not canvas then return nil end
++  local data = readback(canvas)
++  if not data then return nil end
++  local nP, nB = count(data)
++  if data.release then pcall(data.release, data) end
++  return nP, nB
++end
++
++-- How much of the fight a camera at `arena` would see: `panel` is the share
++-- of the view above the foe's row not covered by something nearer, `box` the
++-- share of the player's mon; both 0..1. nil when it cannot be measured (no
++-- 3D, terrain still building, no readback) -- the caller keeps its own answer.
++function BattleScene.sight(state, arena)
++  if not (state and state.map and arena) then return nil end
++  if not Voxel3D.available() then return nil end
++  local host = arena.map or state.map
++  local neighbors = (host == state.map) and (state.neighbors or {}) or {}
++  if not whiteTex then
++    local okI, d = pcall(love.image.newImageData, 1, 1)
++    if not okI then return nil end
++    d:setPixel(0, 0, 1, 1, 1, 1)
++    whiteTex = love.graphics.newImage(d)
++  end
++  local groundY = BattleScene.groundY(host, arena)
++  local panelMesh, boxMesh = markers(arena, groundY)
++  if not (panelMesh and boxMesh) then return nil end
++
++  -- a plain, unlit pass: no rays, no shadow, no wireframe
++  local RayFX = V.require("RayFX")
++  local wantedWas, depthWas = RayFX.wanted, Voxel3D.wantDepth
++  local sunWas, gridWas = Voxel3D.SHADOW_ALPHA, VoxelGrid.override
++  RayFX.wanted = function() return false end
++  Voxel3D.wantDepth = false
++  Voxel3D.SHADOW_ALPHA = 0
++  VoxelGrid.override = true
++  love.graphics.push("all")
++  local ok, a1, a2, b1, b2 = pcall(function()
++    -- the marker-only frame depends on the lens alone (the markers move with
++    -- the arena and so does the camera), so it is drawn once per lens
++    local key = (arena.cam or "default") .. ":" .. BattleScene.SIGHT_W
++                .. "x" .. BattleScene.SIGHT_H .. ":" .. Quality.scale()
++    local base = sightBase[key]
++    if not base then
++      local p0, x0 = sightPass(state, host, neighbors, arena, groundY, false,
++                               panelMesh, boxMesh)
++      if not p0 then return nil end
++      base = { p0, x0 }
++      sightBase[key] = base
++    end
++    local p0, x0 = base[1], base[2]
++    local p1, x1 = sightPass(state, host, neighbors, arena, groundY, true,
++                             panelMesh, boxMesh)
++    return p0, x0, p1, x1
++  end)
++  love.graphics.pop()
++  RayFX.wanted, Voxel3D.wantDepth = wantedWas, depthWas
++  Voxel3D.SHADOW_ALPHA, VoxelGrid.override = sunWas, gridWas
++  pcall(panelMesh.release, panelMesh)
++  pcall(boxMesh.release, boxMesh)
++  if not (ok and a1 and b1) then return nil end
++  local panel = (a1 > 0) and math.min(1, b1 / a1) or 0
++  local box = (a2 > 0) and math.min(1, b2 / a2) or 0
++  return { panel = panel, box = box, base = { a1, a2 }, seen = { b1, b2 } }
++end
++
+ return BattleScene
 diff --git a/lib/Device.lua b/lib/Device.lua
 index 0b3a2c3..a3ed1ba 100644
 --- a/lib/Device.lua
@@ -257,7 +587,7 @@ index 9b1d0f2..71a1435 100644
    -- gen2compat, src/world/gen2/Npc.lua), but its Player does not -- and
    -- the billboard pass poses every entity through the same call.  Mirror
 diff --git a/lib/OverworldBattle.lua b/lib/OverworldBattle.lua
-index 67ced51..f56de04 100644
+index 67ced51..a7b6ae5 100644
 --- a/lib/OverworldBattle.lua
 +++ b/lib/OverworldBattle.lua
 @@ -58,6 +58,7 @@ local BattleScreenXY = V.require("BattleScreenXY")
@@ -368,8 +698,9 @@ index 67ced51..f56de04 100644
  
    local ok, arena = pcall(BattleArena.find, state.map,
                            state.player.cellX, state.player.cellY,
-                           state.player.surfing)
+-                          state.player.surfing)
 -  if not (ok and arena) then return false end
++                          state.player.surfing, state)
 +  if not (ok and arena) then
 +    return Gen2Bridge.isGen2() and beginGold(state, battle) or false
 +  end
@@ -435,7 +766,7 @@ index 67ced51..f56de04 100644
    end
    session.snapped = false
    if shot and shot.canvas then
-@@ -810,42 +896,100 @@ end
+@@ -810,42 +896,109 @@ end
  local gen2InnerPic = nil     -- BS2.drawPic captured by installGen2
  local gen2Texturing = false  -- lets the bake through the panel suppression
  
@@ -479,13 +810,22 @@ index 67ced51..f56de04 100644
 -  -- v1 stages the enemy only; the player's back pic stays in the panel
 -  if side ~= "enemy" then return nil end
    if not gen2InnerPic then return nil end
++  -- the mon the SCREEN is showing, not the model's: the model switches to
++  -- the next mon the moment a faint is decided, while the screen keeps the
++  -- fainting one up until its faint animation has played (activeMon reads
++  -- shownMon, the same answer the engine's own HUD and drawPics use)
    local model = screen.battle
 -  local mon = model and model.enemy
 -  if not mon then return nil end
 -  -- the trainer's intro front pic belongs to the classic slot, and slides
 -  -- out there; only the MON stands on the field
 -  if screen.showEnemyTrainer then return nil end
-+  local mon = model and model[side]
++  local mon
++  if screen.activeMon then
++    mon = screen:activeMon(side)
++  else
++    mon = model and model[side]
++  end
 +  local back = (side == "player")
 +  local trainer = (side == "enemy") and screen.showEnemyTrainer and true or false
 +  if not (mon or trainer) then return nil end
@@ -550,7 +890,7 @@ index 67ced51..f56de04 100644
  local function sideVisible(battle, side)
    if side == "enemy" then
      if battle.showEnemyTrainer and battle.trainerPic then return true end
-@@ -973,9 +1117,9 @@ end
+@@ -973,9 +1126,9 @@ end
  -- staged shot, the white surround becomes the arena render, the panel's
  -- own full-screen white fill (Chrome.clear) is silenced for that one
  -- draw, and the enemy's flat pic stays out of the panel because the mon
@@ -563,7 +903,7 @@ index 67ced51..f56de04 100644
  function OverworldBattle.installGen2()
    local okB, BS2 = pcall(require, "src.ui.gen2.BattleState")
    local okC, Chrome = pcall(require, "src.ui.gen2.Chrome")
-@@ -985,18 +1129,18 @@ function OverworldBattle.installGen2()
+@@ -985,18 +1138,18 @@ function OverworldBattle.installGen2()
  
    gen2InnerPic = BS2.drawPic
  
@@ -589,7 +929,7 @@ index 67ced51..f56de04 100644
    local suppressClear = false
    local innerClear = Chrome.clear
    function Chrome.clear()
-@@ -1007,25 +1151,172 @@ function OverworldBattle.installGen2()
+@@ -1007,25 +1160,172 @@ function OverworldBattle.installGen2()
      return innerClear()
    end
  
@@ -855,6 +1195,26 @@ index bb11610..3c6203d 100644
    -- fit first: it is what decides which resolution rung this view wants
    fit(cx, cy, vw, vh)
    local c = getCanvas(ShadowMap.res)
+diff --git a/lib/StartMenuXY.lua b/lib/StartMenuXY.lua
+index 36f9845..c299ce4 100644
+--- a/lib/StartMenuXY.lua
++++ b/lib/StartMenuXY.lua
+@@ -293,8 +293,13 @@ function StartMenuXY.install()
+     if type(menu) == "table" then
+       local engineDraw = menu.draw
+       menu.draw = function(self, ...)
+-        -- asked per frame, not per menu: the setting can change under it
+-        if StartMenuXY.available() then return end
++        -- asked per frame, not per menu: the setting can change under it.
++        -- Gen 2: the engine's Gen2Compat shim hands this wrap the Gold /
++        -- Crystal StartMenu class as well, but present() only repaints a
++        -- screenId "StartMenu" (Gen 1), so blanking the Gen 2 menu here
++        -- left Crystal with a START menu that opened but never drew
++        -- (2026-09-20).  Only silence a menu present() will repaint.
++        if StartMenuXY.available() and self.screenId == "StartMenu" then return end
+         if engineDraw then return engineDraw(self, ...) end
+         local mt = getmetatable(self)
+         local classDraw = mt and mt.__index and mt.__index.draw
 diff --git a/lib/Structures.lua b/lib/Structures.lua
 index 0bd2e8b..a8e5c87 100644
 --- a/lib/Structures.lua
